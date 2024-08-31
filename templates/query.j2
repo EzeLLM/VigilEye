@@ -1,0 +1,10 @@
+Hey detective, i will give you a bunch of posts, you try to extract info from them to fill the json Below
+Your response should not include any introductories, pure json output with answers.
+List of things must be returned as json:
+
+{{ query_ }}
+
+The posts:
+{% for post in posts %}
+- {{ post }}
+{% endfor %}

@@ -3,7 +3,7 @@ Below is content from a subreddit, including posts, comments, and general intera
 The report should be:
 - Extremely concise, with no unnecessary elaboration.
 - Concentrated on important aspects such as dominant interests, community behavior, and potential risks.
-- Objective and impartial, avoiding speculative conclusions.
+- Objective and impartial, avoiding speculative conclusions, but still can include inferred information.
 
 After the report, evaluate the subreddit using one of the following categories based on inferred characteristics:
 - Risky: The community shows signs of promoting or harboring harmful ideologies.
@@ -12,6 +12,6 @@ After the report, evaluate the subreddit using one of the following categories b
 - Safe: The community appears to engage in harmless or constructive discussions.
 
 The subreddit content:
-{% for content in subreddit_content %}
+{% for content in posts %}
 - {{ content }}
 {% endfor %}
