@@ -1,0 +1,14 @@
+2024-08-30 20:27:30,921 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 21:55:35,768 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 21:58:59,969 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 21:59:25,123 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 22:00:17,192 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 22:01:54,255 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 22:04:03,327 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 22:04:20,778 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 22:04:41,857 - SharedLogger - INFO - Prompt length in tokens: 22429
+2024-08-30 23:13:52,516 - SharedLogger - INFO - Prompt length in tokens: 1377
+2024-08-30 23:33:59,376 - SharedLogger - CRITICAL - A post did not have a key! Maybe image post?
+2024-08-30 23:33:59,381 - SharedLogger - INFO - Prompt length in tokens: 2394
+2024-08-30 23:36:42,224 - SharedLogger - CRITICAL - A post did not have a key! Maybe image post?
+2024-08-30 23:36:42,228 - SharedLogger - INFO - Prompt length in tokens: 2506

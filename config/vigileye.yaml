@@ -1,0 +1,11 @@
+prompt_gen:
+  json_path: input/dataset_twitter-scraper_2024-08-30_20-21-20-752.json
+  template_path: 'templates/security.j2'
+  text_field: text
+  other_fields:
+    - 'retweets'
+
+  
+classifier:
+  model: gpt-4o-mini
+  history_path: templates/history.json

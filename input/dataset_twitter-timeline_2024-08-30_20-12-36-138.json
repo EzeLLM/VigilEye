@@ -1,0 +1,1338 @@
+[{
+  "tweet_id": "1820149084893667630",
+  "bookmarks": 0,
+  "created_at": "Sun Aug 04 17:25:33 +0000 2024",
+  "favorites": 0,
+  "text": "RT @tradingmemestr: bazı öncelikler :) https://t.co/WWlqOA96F1",
+  "lang": "tr",
+  "views": null,
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "1519251406879866880",
+        "name": "Trading memes",
+        "screen_name": "tradingmemestr"
+      }
+    ]
+  },
+  "replies": 0,
+  "retweets": 415,
+  "conversation_id": "1820149084893667630",
+  "media": {
+    "video": [
+      {
+        "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1819711672937811969/pu/img/GwgTKvguVu8iwCMx.jpg",
+        "variants": [
+          {
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/pl/gUivOYjhBbaBqzcu.m3u8?tag=12&v=bb1"
+          },
+          {
+            "bitrate": 432000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/320x320/wSjqc4losiS5140Q.mp4?tag=12"
+          },
+          {
+            "bitrate": 832000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/540x540/zV-wikLYONt5bcme.mp4?tag=12"
+          },
+          {
+            "bitrate": 1280000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/720x720/a2XkHKaHBDfMh9eX.mp4?tag=12"
+          }
+        ],
+        "aspect_ratio": [
+          1,
+          1
+        ],
+        "original_info": {
+          "height": 1080,
+          "width": 1080,
+          "focus_rects": []
+        },
+        "id": "1819711672937811969"
+      }
+    ]
+  },
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "retweeted": {
+    "id": "1819711777313075545"
+  },
+  "retweeted_tweet": {
+    "tweet_id": "1819711777313075545",
+    "bookmarks": 2015,
+    "created_at": "Sat Aug 03 12:27:50 +0000 2024",
+    "favorites": 12711,
+    "text": "bazı öncelikler :) https://t.co/WWlqOA96F1",
+    "lang": "tr",
+    "views": "608185",
+    "quotes": 21,
+    "entities": {
+      "hashtags": [],
+      "media": [
+        {
+          "display_url": "pic.x.com/wwlqoa96f1",
+          "expanded_url": "https://twitter.com/tradingmemestr/status/1819711777313075545/video/1",
+          "id_str": "1819711672937811969",
+          "indices": [
+            19,
+            42
+          ],
+          "media_key": "7_1819711672937811969",
+          "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1819711672937811969/pu/img/GwgTKvguVu8iwCMx.jpg",
+          "type": "video",
+          "url": "https://t.co/WWlqOA96F1",
+          "additional_media_info": {
+            "monetizable": false
+          },
+          "ext_media_availability": {
+            "status": "Available"
+          },
+          "sizes": {
+            "large": {
+              "h": 1080,
+              "w": 1080,
+              "resize": "fit"
+            },
+            "medium": {
+              "h": 1080,
+              "w": 1080,
+              "resize": "fit"
+            },
+            "small": {
+              "h": 680,
+              "w": 680,
+              "resize": "fit"
+            },
+            "thumb": {
+              "h": 150,
+              "w": 150,
+              "resize": "crop"
+            }
+          },
+          "original_info": {
+            "height": 1080,
+            "width": 1080,
+            "focus_rects": []
+          },
+          "allow_download_status": {
+            "allow_download": true
+          },
+          "video_info": {
+            "aspect_ratio": [
+              1,
+              1
+            ],
+            "duration_millis": 30836,
+            "variants": [
+              {
+                "content_type": "application/x-mpegURL",
+                "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/pl/gUivOYjhBbaBqzcu.m3u8?tag=12&v=bb1"
+              },
+              {
+                "bitrate": 432000,
+                "content_type": "video/mp4",
+                "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/320x320/wSjqc4losiS5140Q.mp4?tag=12"
+              },
+              {
+                "bitrate": 832000,
+                "content_type": "video/mp4",
+                "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/540x540/zV-wikLYONt5bcme.mp4?tag=12"
+              },
+              {
+                "bitrate": 1280000,
+                "content_type": "video/mp4",
+                "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/720x720/a2XkHKaHBDfMh9eX.mp4?tag=12"
+              }
+            ]
+          },
+          "media_results": {
+            "result": {
+              "media_key": "7_1819711672937811969"
+            }
+          }
+        }
+      ],
+      "symbols": [],
+      "timestamps": [],
+      "urls": [],
+      "user_mentions": []
+    },
+    "replies": 23,
+    "retweets": 415,
+    "conversation_id": "1819711777313075545",
+    "author": {
+      "rest_id": "1519251406879866880",
+      "name": "Trading memes",
+      "screen_name": "tradingmemestr",
+      "avatar": "https://pbs.twimg.com/profile_images/1813245774194491392/ZBqt0oyv_normal.jpg",
+      "blue_verified": true
+    },
+    "media": {
+      "video": [
+        {
+          "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1819711672937811969/pu/img/GwgTKvguVu8iwCMx.jpg",
+          "variants": [
+            {
+              "content_type": "application/x-mpegURL",
+              "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/pl/gUivOYjhBbaBqzcu.m3u8?tag=12&v=bb1"
+            },
+            {
+              "bitrate": 432000,
+              "content_type": "video/mp4",
+              "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/320x320/wSjqc4losiS5140Q.mp4?tag=12"
+            },
+            {
+              "bitrate": 832000,
+              "content_type": "video/mp4",
+              "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/540x540/zV-wikLYONt5bcme.mp4?tag=12"
+            },
+            {
+              "bitrate": 1280000,
+              "content_type": "video/mp4",
+              "url": "https://video.twimg.com/ext_tw_video/1819711672937811969/pu/vid/avc1/720x720/a2XkHKaHBDfMh9eX.mp4?tag=12"
+            }
+          ],
+          "aspect_ratio": [
+            1,
+            1
+          ],
+          "original_info": {
+            "height": 1080,
+            "width": 1080,
+            "focus_rects": []
+          },
+          "id": "1819711672937811969"
+        }
+      ]
+    }
+  }
+},
+{
+  "tweet_id": "1774791362879029648",
+  "bookmarks": 0,
+  "created_at": "Mon Apr 01 13:30:09 +0000 2024",
+  "favorites": 1,
+  "text": "\"Matrix multiplication is the linear combination of the columns of the matrix on the left and of the rows of the matrix on the right\"",
+  "lang": "en",
+  "views": "348",
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "replies": 0,
+  "retweets": 0,
+  "conversation_id": "1774791362879029648",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  }
+},
+{
+  "tweet_id": "1748824210158305375",
+  "bookmarks": 0,
+  "created_at": "Sat Jan 20 21:45:57 +0000 2024",
+  "favorites": 0,
+  "text": "https://t.co/BCXwciltq4",
+  "lang": "zxx",
+  "views": "539",
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "replies": 0,
+  "retweets": 0,
+  "conversation_id": "1748824210158305375",
+  "media": {
+    "photo": [
+      {
+        "media_url_https": "https://pbs.twimg.com/media/GEUSWQ3WAAA--TO.png",
+        "id": "1748824203996823552"
+      }
+    ]
+  },
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "quoted": {
+    "tweet_id": "1748709270361661475",
+    "bookmarks": 726,
+    "created_at": "Sat Jan 20 14:09:14 +0000 2024",
+    "favorites": 395,
+    "text": "GPT4'ü bedava, sınırsız, sansürsüz ve çevrimdışı kullanmak ister misiniz?\n\n1- https://t.co/fblDqqg9jZ linkinden \"Direct Installer Links\" kısmına gidin ve işletim sisteminize uygun ilgili dosyayı indirin.\n2- Yükleme işleminden sonra istediğiniz modeli seçerek yükleyin ve",
+    "lang": "tr",
+    "views": "86946",
+    "quotes": 21,
+    "replies": 12,
+    "retweets": 0,
+    "conversation_id": "1748709270361661475",
+    "author": {
+      "rest_id": "100932474",
+      "name": "Taha YELKENCİ",
+      "screen_name": "tahayelkenci",
+      "avatar": "https://pbs.twimg.com/profile_images/1605604591076347906/lDryu2IU_normal.jpg",
+      "blue_verified": true
+    },
+    "media": []
+  }
+},
+{
+  "tweet_id": "1708216016671490211",
+  "bookmarks": 0,
+  "created_at": "Sat Sep 30 20:23:30 +0000 2023",
+  "favorites": 0,
+  "text": "I love this man. He is my idol",
+  "lang": "en",
+  "views": "315",
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "replies": 1,
+  "retweets": 0,
+  "conversation_id": "1708216016671490211",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "quoted": {
+    "tweet_id": "1708195223904645236",
+    "bookmarks": 564,
+    "created_at": "Sat Sep 30 19:00:52 +0000 2023",
+    "favorites": 1830,
+    "text": "How Raspberry Pis are made (Factory Tour)\nhttps://t.co/nNz78n039Q\nLove watching videos like this.\nStumbled by while researching the new Pi 5.\nPis help build Pis!\nOne Pi gets built every ~3.14 seconds :D\nI want to play Factorio now.",
+    "lang": "en",
+    "views": "296769",
+    "quotes": 10,
+    "replies": 35,
+    "retweets": 176,
+    "conversation_id": "1708195223904645236",
+    "author": {
+      "rest_id": "33836629",
+      "name": "Andrej Karpathy",
+      "screen_name": "karpathy",
+      "avatar": "https://pbs.twimg.com/profile_images/1296667294148382721/9Pr6XrPB_normal.jpg",
+      "blue_verified": true
+    },
+    "media": []
+  }
+},
+{
+  "tweet_id": "1682800770905694209",
+  "bookmarks": 0,
+  "created_at": "Sat Jul 22 17:12:23 +0000 2023",
+  "favorites": 0,
+  "text": "RT @JCorvinusVR: given how often Earth evolution has re-invented the crab, humanoid aliens should not be weird or unexpected at all",
+  "lang": "en",
+  "views": null,
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "631547584",
+        "name": "𝕵𝕮𝖔𝖗𝖛𝖎𝖓𝖚𝖘",
+        "screen_name": "JCorvinusVR"
+      }
+    ]
+  },
+  "replies": 0,
+  "retweets": 54,
+  "conversation_id": "1682800770905694209",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "retweeted": {
+    "id": "1682542365662216193"
+  },
+  "retweeted_tweet": {
+    "tweet_id": "1682542365662216193",
+    "bookmarks": 38,
+    "created_at": "Sat Jul 22 00:05:34 +0000 2023",
+    "favorites": 832,
+    "text": "given how often Earth evolution has re-invented the crab, humanoid aliens should not be weird or unexpected at all",
+    "lang": "en",
+    "views": "57787",
+    "quotes": 8,
+    "entities": {
+      "hashtags": [],
+      "symbols": [],
+      "timestamps": [],
+      "urls": [],
+      "user_mentions": []
+    },
+    "replies": 59,
+    "retweets": 54,
+    "conversation_id": "1682542365662216193",
+    "author": {
+      "rest_id": "631547584",
+      "name": "𝕵𝕮𝖔𝖗𝖛𝖎𝖓𝖚𝖘",
+      "screen_name": "JCorvinusVR",
+      "avatar": "https://pbs.twimg.com/profile_images/1720279187192225792/jkyo2hVz_normal.jpg",
+      "blue_verified": false
+    },
+    "media": []
+  }
+},
+{
+  "tweet_id": "1666396243570958336",
+  "bookmarks": 0,
+  "created_at": "Wed Jun 07 10:46:39 +0000 2023",
+  "favorites": 0,
+  "text": "RT @GillesDeleuze17: Birleşik Krallık ve İzlanda'da genetik bozulma/disjeni:\n\nDaha yüksek zekayı, eğitim seviyesini, geliri, fiziksel ve me…",
+  "lang": "tr",
+  "views": null,
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "1446740673789669383",
+        "name": "Mustafa Yücel",
+        "screen_name": "GillesDeleuze17"
+      }
+    ]
+  },
+  "replies": 0,
+  "retweets": 22,
+  "conversation_id": "1666396243570958336",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "retweeted": {
+    "id": "1666370725299585024"
+  },
+  "retweeted_tweet": {
+    "tweet_id": "1666370725299585024",
+    "bookmarks": 38,
+    "created_at": "Wed Jun 07 09:05:15 +0000 2023",
+    "favorites": 234,
+    "text": "Birleşik Krallık ve İzlanda'da genetik bozulma/disjeni:\n\nDaha yüksek zekayı, eğitim seviyesini, geliri, fiziksel ve mental sağlığı öngören polijenik skorlar aynı zamanda daha düşük doğurganlığı da öngörüyor. Dünyayı nasıl bir geleceğin beklediği büyük merak konusu. https://t.co/rnNib3jmkr",
+    "lang": "tr",
+    "views": "30521",
+    "quotes": 4,
+    "entities": {
+      "hashtags": [],
+      "media": [
+        {
+          "display_url": "pic.x.com/rnnib3jmkr",
+          "expanded_url": "https://twitter.com/GillesDeleuze17/status/1666370725299585024/photo/1",
+          "id_str": "1666370706353864706",
+          "indices": [
+            266,
+            289
+          ],
+          "media_key": "3_1666370706353864706",
+          "media_url_https": "https://pbs.twimg.com/media/FyAjVCBWwAIzZL9.jpg",
+          "type": "photo",
+          "url": "https://t.co/rnNib3jmkr",
+          "ext_media_availability": {
+            "status": "Available"
+          },
+          "features": {
+            "large": {
+              "faces": []
+            },
+            "medium": {
+              "faces": []
+            },
+            "small": {
+              "faces": []
+            },
+            "orig": {
+              "faces": []
+            }
+          },
+          "sizes": {
+            "large": {
+              "h": 1241,
+              "w": 920,
+              "resize": "fit"
+            },
+            "medium": {
+              "h": 1200,
+              "w": 890,
+              "resize": "fit"
+            },
+            "small": {
+              "h": 680,
+              "w": 504,
+              "resize": "fit"
+            },
+            "thumb": {
+              "h": 150,
+              "w": 150,
+              "resize": "crop"
+            }
+          },
+          "original_info": {
+            "height": 1241,
+            "width": 920,
+            "focus_rects": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 920,
+                "h": 515
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 920,
+                "h": 920
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 920,
+                "h": 1049
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 621,
+                "h": 1241
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 920,
+                "h": 1241
+              }
+            ]
+          },
+          "media_results": {
+            "result": {
+              "media_key": "3_1666370706353864706"
+            }
+          }
+        },
+        {
+          "display_url": "pic.x.com/rnnib3jmkr",
+          "expanded_url": "https://twitter.com/GillesDeleuze17/status/1666370725299585024/photo/1",
+          "id_str": "1666370716130762755",
+          "indices": [
+            266,
+            289
+          ],
+          "media_key": "3_1666370716130762755",
+          "media_url_https": "https://pbs.twimg.com/media/FyAjVmcWYAMSqqs.jpg",
+          "type": "photo",
+          "url": "https://t.co/rnNib3jmkr",
+          "ext_media_availability": {
+            "status": "Available"
+          },
+          "features": {
+            "large": {
+              "faces": []
+            },
+            "medium": {
+              "faces": []
+            },
+            "small": {
+              "faces": []
+            },
+            "orig": {
+              "faces": []
+            }
+          },
+          "sizes": {
+            "large": {
+              "h": 1308,
+              "w": 1012,
+              "resize": "fit"
+            },
+            "medium": {
+              "h": 1200,
+              "w": 928,
+              "resize": "fit"
+            },
+            "small": {
+              "h": 680,
+              "w": 526,
+              "resize": "fit"
+            },
+            "thumb": {
+              "h": 150,
+              "w": 150,
+              "resize": "crop"
+            }
+          },
+          "original_info": {
+            "height": 1308,
+            "width": 1012,
+            "focus_rects": [
+              {
+                "x": 0,
+                "y": 0,
+                "w": 1012,
+                "h": 567
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 1012,
+                "h": 1012
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 1012,
+                "h": 1154
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 654,
+                "h": 1308
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 1012,
+                "h": 1308
+              }
+            ]
+          },
+          "media_results": {
+            "result": {
+              "media_key": "3_1666370716130762755"
+            }
+          }
+        }
+      ],
+      "symbols": [],
+      "timestamps": [],
+      "urls": [],
+      "user_mentions": []
+    },
+    "replies": 10,
+    "retweets": 22,
+    "conversation_id": "1666370725299585024",
+    "author": {
+      "rest_id": "1446740673789669383",
+      "name": "Mustafa Yücel",
+      "screen_name": "GillesDeleuze17",
+      "avatar": "https://pbs.twimg.com/profile_images/1807448210165690368/X8a6qcKR_normal.jpg",
+      "blue_verified": true
+    },
+    "media": {
+      "photo": [
+        {
+          "media_url_https": "https://pbs.twimg.com/media/FyAjVCBWwAIzZL9.jpg",
+          "id": "1666370706353864706"
+        },
+        {
+          "media_url_https": "https://pbs.twimg.com/media/FyAjVmcWYAMSqqs.jpg",
+          "id": "1666370716130762755"
+        }
+      ]
+    }
+  }
+},
+{
+  "tweet_id": "1656035667581779978",
+  "bookmarks": 0,
+  "created_at": "Tue May 09 20:37:25 +0000 2023",
+  "favorites": 0,
+  "text": "😮🤨😱",
+  "lang": "art",
+  "views": "225",
+  "quotes": 1,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "replies": 0,
+  "retweets": 0,
+  "conversation_id": "1656035667581779978",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "quoted": {
+    "tweet_id": "1655982364273831936",
+    "bookmarks": 801,
+    "created_at": "Tue May 09 17:05:36 +0000 2023",
+    "favorites": 5347,
+    "text": "We applied GPT-4 to interpretability — automatically proposing explanations for GPT-2's 300k neurons — and found neurons responding to concepts like similes, “things done correctly,” or expressions of certainty. We aim to use Al to help us understand Al: https://t.co/mUsGOg6T69 https://t.co/knCUxnL5CY",
+    "lang": "en",
+    "views": "2770594",
+    "quotes": 239,
+    "replies": 361,
+    "retweets": 990,
+    "conversation_id": "1655982364273831936",
+    "author": {
+      "rest_id": "4398626122",
+      "name": "OpenAI",
+      "screen_name": "OpenAI",
+      "avatar": "https://pbs.twimg.com/profile_images/1634058036934500352/b4F1eVpJ_normal.jpg",
+      "blue_verified": true
+    },
+    "media": {
+      "photo": [
+        {
+          "media_url_https": "https://pbs.twimg.com/media/Fvs7LdmaUAAQCSZ.jpg",
+          "id": "1655982356099125248"
+        }
+      ]
+    }
+  }
+},
+{
+  "tweet_id": "1655224460457156610",
+  "bookmarks": 0,
+  "created_at": "Sun May 07 14:53:58 +0000 2023",
+  "favorites": 0,
+  "text": "Böyle bir olayı hayal bile edemezdim",
+  "lang": "tr",
+  "views": "172",
+  "quotes": 0,
+  "replies": 1,
+  "retweets": 0,
+  "conversation_id": "1655224460457156610",
+  "media": [],
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "quoted": {
+    "tweet_id": "1655210176171917313",
+    "bookmarks": 710,
+    "created_at": "Sun May 07 13:57:12 +0000 2023",
+    "favorites": 137018,
+    "text": "AK Parti, Cemre Demirel’i mitingine malzeme etmiş. Demirel gençtir ve gençler bazen deli dolu olurlar. Normaldir. Ricam, sosyal medyada hiç kimse kendisine kötü bir şey demesin. Gençleri kullananlar ayıplarıyla kalsın. Beni eleştirenin de sevenin de başımın üstünde yeri var. https://t.co/QF6wANgVFY",
+    "lang": "tr",
+    "views": "20688401",
+    "quotes": 2563,
+    "replies": 3819,
+    "retweets": 9917,
+    "conversation_id": "1655210176171917313",
+    "author": {
+      "rest_id": "154140901",
+      "name": "Kemal Kılıçdaroğlu",
+      "screen_name": "kilicdarogluk",
+      "avatar": "https://pbs.twimg.com/profile_images/1688262839113318400/QHfKJBtZ_normal.jpg",
+      "blue_verified": true
+    },
+    "media": {
+      "photo": [
+        {
+          "media_url_https": "https://pbs.twimg.com/media/Fvh84CiWIAMRZWn.jpg",
+          "id": "1655210165254103043"
+        }
+      ]
+    }
+  }
+},
+{
+  "tweet_id": "1655336701709910017",
+  "bookmarks": 0,
+  "created_at": "Sun May 07 22:19:59 +0000 2023",
+  "favorites": 0,
+  "text": "@ReplyGPT",
+  "lang": "qam",
+  "views": "112",
+  "quotes": 0,
+  "replies": 1,
+  "retweets": 0,
+  "conversation_id": "1655224460457156610",
+  "media": [],
+  "reply_to": "1655224460457156610",
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "1506967793409064965",
+        "name": "Shing ha",
+        "screen_name": "ReplyGPT"
+      }
+    ]
+  }
+},
+{
+  "tweet_id": "1654975753723715585",
+  "bookmarks": 0,
+  "created_at": "Sat May 06 22:25:42 +0000 2023",
+  "favorites": 0,
+  "text": "community notes elon muska yaramamış",
+  "lang": "tr",
+  "views": "119",
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "replies": 0,
+  "retweets": 0,
+  "conversation_id": "1654975753723715585",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "quoted": {
+    "tweet_id": "1654644652593512448",
+    "bookmarks": 939,
+    "created_at": "Sat May 06 00:30:01 +0000 2023",
+    "favorites": 19090,
+    "text": "Elon Musk came to the US with no money &amp; graduated with over $100k in debt, despite scholarships &amp; working 2 jobs while at school. https://t.co/jy224ETHtt",
+    "lang": "en",
+    "views": "71892695",
+    "quotes": 2908,
+    "replies": 3611,
+    "retweets": 1582,
+    "conversation_id": "1654644652593512448",
+    "author": {
+      "rest_id": "1389913567671975937",
+      "name": "DogeDesigner",
+      "screen_name": "cb_doge",
+      "avatar": "https://pbs.twimg.com/profile_images/1498070100393754625/C2V-fbll_normal.jpg",
+      "blue_verified": true
+    },
+    "media": {
+      "photo": [
+        {
+          "media_url_https": "https://pbs.twimg.com/media/FvZ6iq0WYAECfHK.jpg",
+          "id": "1654644649133236225"
+        }
+      ]
+    }
+  }
+},
+{
+  "tweet_id": "1650973491049447425",
+  "bookmarks": 0,
+  "created_at": "Tue Apr 25 21:22:08 +0000 2023",
+  "favorites": 0,
+  "text": "RT @sama: common pattern: ChatGPT users demonstrate that they understand the limitations and weaknesses of the product *extremely well*; ex…",
+  "lang": "en",
+  "views": null,
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "1605",
+        "name": "Sam Altman",
+        "screen_name": "sama"
+      }
+    ]
+  },
+  "replies": 0,
+  "retweets": 519,
+  "conversation_id": "1650973491049447425",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "retweeted": {
+    "id": "1650968747841310720"
+  },
+  "retweeted_tweet": {
+    "tweet_id": "1650968747841310720",
+    "bookmarks": 276,
+    "created_at": "Tue Apr 25 21:03:17 +0000 2023",
+    "favorites": 6338,
+    "text": "common pattern: ChatGPT users demonstrate that they understand the limitations and weaknesses of the product *extremely well*; experts in the field continue to worry it’s just too complicated and the users won’t be able to understand",
+    "lang": "en",
+    "views": "1094665",
+    "quotes": 106,
+    "entities": {
+      "hashtags": [],
+      "symbols": [],
+      "timestamps": [],
+      "urls": [],
+      "user_mentions": []
+    },
+    "replies": 468,
+    "retweets": 519,
+    "conversation_id": "1650968747841310720",
+    "author": {
+      "rest_id": "1605",
+      "name": "Sam Altman",
+      "screen_name": "sama",
+      "avatar": "https://pbs.twimg.com/profile_images/804990434455887872/BG0Xh7Oa_normal.jpg",
+      "blue_verified": true
+    },
+    "media": []
+  }
+},
+{
+  "tweet_id": "1621920625097834497",
+  "bookmarks": 0,
+  "created_at": "Sat Feb 04 17:16:25 +0000 2023",
+  "favorites": 0,
+  "text": "RT @GillesDeleuze17: Son olarak, ekonomik ve politik eşitliğin daha fazla olduğu ülkelerde akademideki cinsiyet farklılıkları daha büyük.\nh…",
+  "lang": "tr",
+  "views": null,
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "1446740673789669383",
+        "name": "Mustafa Yücel",
+        "screen_name": "GillesDeleuze17"
+      }
+    ]
+  },
+  "replies": 0,
+  "retweets": 7,
+  "conversation_id": "1621920625097834497",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "retweeted": {
+    "id": "1621798886548426752"
+  },
+  "retweeted_tweet": {
+    "tweet_id": "1621798886548426752",
+    "bookmarks": 2,
+    "created_at": "Sat Feb 04 09:12:40 +0000 2023",
+    "favorites": 58,
+    "text": "Son olarak, ekonomik ve politik eşitliğin daha fazla olduğu ülkelerde akademideki cinsiyet farklılıkları daha büyük.\nhttps://t.co/ARQqYQeiZW.",
+    "lang": "tr",
+    "views": "5386",
+    "quotes": 0,
+    "entities": {
+      "hashtags": [],
+      "symbols": [],
+      "timestamps": [],
+      "urls": [
+        {
+          "display_url": "sciencedirect.com/science/articl…",
+          "expanded_url": "https://www.sciencedirect.com/science/article/pii/S0160289620300313?fbclid=IwAR22QR2ua79L2L9p98JVaQAJYTmIYhtcFpchzKjysp_yeVrVe2yRH3Uabrw",
+          "url": "https://t.co/ARQqYQeiZW",
+          "indices": [
+            117,
+            140
+          ]
+        }
+      ],
+      "user_mentions": []
+    },
+    "replies": 0,
+    "retweets": 7,
+    "conversation_id": "1621798605785862146",
+    "author": {
+      "rest_id": "1446740673789669383",
+      "name": "Mustafa Yücel",
+      "screen_name": "GillesDeleuze17",
+      "avatar": "https://pbs.twimg.com/profile_images/1807448210165690368/X8a6qcKR_normal.jpg",
+      "blue_verified": true
+    },
+    "media": []
+  }
+},
+{
+  "tweet_id": "1621920593581936643",
+  "bookmarks": 0,
+  "created_at": "Sat Feb 04 17:16:17 +0000 2023",
+  "favorites": 0,
+  "text": "RT @GillesDeleuze17: Yaklaşık 1 milyon kişiden oluşan ve 55-71 ülke ve bölgeyi kapsayan çalışma, akademik cinsiyet farklılıklarının evrense…",
+  "lang": "tr",
+  "views": null,
+  "quotes": 0,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": [
+      {
+        "id_str": "1446740673789669383",
+        "name": "Mustafa Yücel",
+        "screen_name": "GillesDeleuze17"
+      }
+    ]
+  },
+  "replies": 0,
+  "retweets": 10,
+  "conversation_id": "1621920593581936643",
+  "media": [],
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  },
+  "retweeted": {
+    "id": "1621798605785862146"
+  },
+  "retweeted_tweet": {
+    "tweet_id": "1621798605785862146",
+    "bookmarks": 17,
+    "created_at": "Sat Feb 04 09:11:33 +0000 2023",
+    "favorites": 129,
+    "text": "Yaklaşık 1 milyon kişiden oluşan ve 55-71 ülke ve bölgeyi kapsayan çalışma, akademik cinsiyet farklılıklarının evrensel olduğunu gösteriyor. \n\nAyrıca bir diğer önemli nokta öğrencinin cinsiyeti, ilgi ve yeteneklerle büyük oranda tahmin edilebiliyor. https://t.co/786TBOZCxd",
+    "lang": "tr",
+    "views": "17658",
+    "quotes": 0,
+    "entities": {
+      "hashtags": [],
+      "media": [
+        {
+          "display_url": "pic.x.com/786tbozcxd",
+          "expanded_url": "https://twitter.com/GillesDeleuze17/status/1621798605785862146/photo/1",
+          "id_str": "1621798590204022788",
+          "indices": [
+            250,
+            273
+          ],
+          "media_key": "3_1621798590204022788",
+          "media_url_https": "https://pbs.twimg.com/media/FoHJOaJXEAQC81C.jpg",
+          "type": "photo",
+          "url": "https://t.co/786TBOZCxd",
+          "ext_media_availability": {
+            "status": "Available"
+          },
+          "features": {
+            "large": {
+              "faces": []
+            },
+            "medium": {
+              "faces": []
+            },
+            "small": {
+              "faces": []
+            },
+            "orig": {
+              "faces": []
+            }
+          },
+          "sizes": {
+            "large": {
+              "h": 705,
+              "w": 2048,
+              "resize": "fit"
+            },
+            "medium": {
+              "h": 413,
+              "w": 1200,
+              "resize": "fit"
+            },
+            "small": {
+              "h": 234,
+              "w": 680,
+              "resize": "fit"
+            },
+            "thumb": {
+              "h": 150,
+              "w": 150,
+              "resize": "crop"
+            }
+          },
+          "original_info": {
+            "height": 705,
+            "width": 2048,
+            "focus_rects": [
+              {
+                "x": 789,
+                "y": 0,
+                "w": 1259,
+                "h": 705
+              },
+              {
+                "x": 1235,
+                "y": 0,
+                "w": 705,
+                "h": 705
+              },
+              {
+                "x": 1278,
+                "y": 0,
+                "w": 618,
+                "h": 705
+              },
+              {
+                "x": 1411,
+                "y": 0,
+                "w": 353,
+                "h": 705
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 2048,
+                "h": 705
+              }
+            ]
+          },
+          "media_results": {
+            "result": {
+              "media_key": "3_1621798590204022788"
+            }
+          }
+        },
+        {
+          "display_url": "pic.x.com/786tbozcxd",
+          "expanded_url": "https://twitter.com/GillesDeleuze17/status/1621798605785862146/photo/1",
+          "id_str": "1621798598093447168",
+          "indices": [
+            250,
+            273
+          ],
+          "media_key": "3_1621798598093447168",
+          "media_url_https": "https://pbs.twimg.com/media/FoHJO3iWIAAiKGd.jpg",
+          "type": "photo",
+          "url": "https://t.co/786TBOZCxd",
+          "ext_media_availability": {
+            "status": "Available"
+          },
+          "features": {
+            "large": {
+              "faces": []
+            },
+            "medium": {
+              "faces": []
+            },
+            "small": {
+              "faces": []
+            },
+            "orig": {
+              "faces": []
+            }
+          },
+          "sizes": {
+            "large": {
+              "h": 1260,
+              "w": 944,
+              "resize": "fit"
+            },
+            "medium": {
+              "h": 1200,
+              "w": 899,
+              "resize": "fit"
+            },
+            "small": {
+              "h": 680,
+              "w": 509,
+              "resize": "fit"
+            },
+            "thumb": {
+              "h": 150,
+              "w": 150,
+              "resize": "crop"
+            }
+          },
+          "original_info": {
+            "height": 1260,
+            "width": 944,
+            "focus_rects": [
+              {
+                "x": 0,
+                "y": 82,
+                "w": 944,
+                "h": 529
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 944,
+                "h": 944
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 944,
+                "h": 1076
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 630,
+                "h": 1260
+              },
+              {
+                "x": 0,
+                "y": 0,
+                "w": 944,
+                "h": 1260
+              }
+            ]
+          },
+          "media_results": {
+            "result": {
+              "media_key": "3_1621798598093447168"
+            }
+          }
+        }
+      ],
+      "symbols": [],
+      "timestamps": [],
+      "urls": [],
+      "user_mentions": []
+    },
+    "replies": 4,
+    "retweets": 10,
+    "conversation_id": "1621798605785862146",
+    "author": {
+      "rest_id": "1446740673789669383",
+      "name": "Mustafa Yücel",
+      "screen_name": "GillesDeleuze17",
+      "avatar": "https://pbs.twimg.com/profile_images/1807448210165690368/X8a6qcKR_normal.jpg",
+      "blue_verified": true
+    },
+    "media": {
+      "photo": [
+        {
+          "media_url_https": "https://pbs.twimg.com/media/FoHJOaJXEAQC81C.jpg",
+          "id": "1621798590204022788"
+        },
+        {
+          "media_url_https": "https://pbs.twimg.com/media/FoHJO3iWIAAiKGd.jpg",
+          "id": "1621798598093447168"
+        }
+      ]
+    }
+  }
+},
+{
+  "tweet_id": "1535984330492858369",
+  "bookmarks": 0,
+  "created_at": "Sun Jun 12 13:56:16 +0000 2022",
+  "favorites": 3,
+  "text": "Muscle man https://t.co/XHJfPGBvfA",
+  "lang": "en",
+  "views": null,
+  "quotes": 1,
+  "entities": {
+    "hashtags": [],
+    "symbols": [],
+    "timestamps": [],
+    "urls": [],
+    "user_mentions": []
+  },
+  "replies": 2,
+  "retweets": 1,
+  "conversation_id": "1535984330492858369",
+  "media": {
+    "video": [
+      {
+        "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1535984234011275265/pu/img/9rK4SFH37cKLJxpe.jpg",
+        "variants": [
+          {
+            "content_type": "application/x-mpegURL",
+            "url": "https://video.twimg.com/ext_tw_video/1535984234011275265/pu/pl/NirIC7EvVkGtGljq.m3u8?tag=12"
+          },
+          {
+            "bitrate": 632000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1535984234011275265/pu/vid/320x568/tB_DNQWacP2O-B7r.mp4?tag=12"
+          },
+          {
+            "bitrate": 950000,
+            "content_type": "video/mp4",
+            "url": "https://video.twimg.com/ext_tw_video/1535984234011275265/pu/vid/360x640/Hu6-DweAq7ga0u5H.mp4?tag=12"
+          }
+        ],
+        "aspect_ratio": [
+          9,
+          16
+        ],
+        "original_info": {
+          "height": 640,
+          "width": 360,
+          "focus_rects": []
+        },
+        "id": "1535984234011275265"
+      }
+    ]
+  },
+  "author": {
+    "rest_id": "1518682019949121546",
+    "name": "Elon Musluk",
+    "screen_name": "HighDavidBrown",
+    "avatar": "https://pbs.twimg.com/profile_images/1646212090024149016/H_yP3q4O_normal.jpg",
+    "blue_verified": false
+  }
+}]

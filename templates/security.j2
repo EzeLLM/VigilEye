@@ -1,0 +1,20 @@
+Below are posts from a single user. The posts include retweets and reposts, each with accompanying statistics that indicate their significance. Your task is to analyze these posts to infer the user's ideology and thoughts.
+
+The report should be:
+- Extremely brief and free of introductions.
+- Focused purely on the user's ideologies and thoughts based on the posts.
+- Objective and non-judgmental in its analysis.
+- Avoid labeling the user as a societal risk unless the content explicitly suggests extremist thoughts.
+- Include political thoughts too
+
+After the brief report, evaluate the risk level of the user based on the following categories and include it as a keyword at the end of the response:
+- Risky: User shows clear signs of extremist or harmful ideology.
+- Moderate: User exhibits some concerning views but not extreme.
+- Potential: User has potential for harmful views but not immediately concerning.
+- Safe: User shows no signs of harmful or extremist ideology.
+
+The posts:
+{% for post in posts %}
+- {{ post }}
+{% endfor %}
+
