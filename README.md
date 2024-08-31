@@ -1,6 +1,6 @@
 # VigilEye
  
-An open-source social media user classifier. The classification is done according to the jinja template. there are couple default default templates and you can create your own to adapt the app for you use-case
+An open-source social media user classifier. The classification is done according to the jinja template. there are couple default default templates and you can create your own to adapt the app for you use-case. The project still needs a lot of optimizations and has a long way to go, a thousand mile starts with a step. Example output with 27000 tokens generated for less than 2 cents with open-ai gpt4o-mini api for conspiracy subreddit is in export folder. 
 # Usage
 For now, the project is working on reddit, twitter part is still in development due to lack of an api.
 You need reddit api and open-ai compatible api (vllm can be used to host local models with open-ai compatible api)

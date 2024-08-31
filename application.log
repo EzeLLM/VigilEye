@@ -22,3 +22,5 @@
 2024-08-31 17:28:59,964 - SharedLogger - INFO - Prompt length in tokens: 19232
 2024-08-31 18:04:19,433 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
 2024-08-31 18:04:19,448 - SharedLogger - INFO - Prompt length in tokens: 19509
+2024-08-31 18:45:21,638 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 18:45:21,653 - SharedLogger - INFO - Prompt length in tokens: 19398

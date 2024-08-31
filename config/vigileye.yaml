@@ -1,6 +1,6 @@
 prompt_gen:
   json_path: ''
-  template_path: 'templates/security.j2'
+  template_path: 'templates/subreddit.j2'
   text_field: title
   other_fields:
     - 'score'
