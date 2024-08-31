@@ -1,6 +1,5 @@
 import praw
-import datetime
-import json
+from dotenv import load_dotenv
 import os 
 import Common as common
 import argparse
@@ -10,19 +9,22 @@ parser = argparse.ArgumentParser(description="""
 VigilEye app is made to track and evaluate social media. You are using the reddit branch of the app. This is meant to analyze users and subreddits. Usages can vary from marketing to security analysis. You adapt this app to your own usage purposes by making your own jinja2 prompt template and pass it to the app easily.
 """)
 parser.add_argument('--reddit', type=str,required=True, help='username or subreddit name. eg.: u/someUser , r/someSub')
-parser.add_argument('--max_tokens',type=int,required=True,help='max tokens to be retrieved. The gpt4o-mini has context length of 128K tokens. 10\% token safe zone will be applied')
-parser.add_argument('--config',type=int,required=True,help='yaml config path')
+parser.add_argument('--max_tokens',type=int,required=True,help='max tokens to be retrieved. The gpt4o-mini has context length of 128K tokens. 10% token safe zone will be applied')
+parser.add_argument('--config',type=str,required=True,help='yaml config path')
 
 args = parser.parse_args()
+load_dotenv()
 
 class EyesOnReddit():
     def __init__(self):
+        print("here")
+
         self.token_limit = (args.max_tokens * 0.9)
         self.reddit_address = args.reddit
         self.config_dir = args.config
         self.reddit = praw.Reddit(
             client_id=os.getenv('REDDIT_CLIENT_ID'),
-            client_secret=os.getenv("REDDIT_CLIEND_SECRET"),
+            client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
             user_agent="VigilEye/1.0 (by Ezel Bayraktar)"
         )
 
@@ -61,18 +63,31 @@ class EyesOnReddit():
         from tqdm import tqdm
 
         post_type = 'user' if source.split('/')[0] == 'u' else 'subreddit'
-        limit = int(limit)  # Now limit represents token count
+        source = source.split('/')[1]
+        limit = int(limit)  
         posts = []
         batch_size = 99
         wait_time = 62  # seconds
         total_tokens = 0
+        no_new_posts_count = 0
+        max_attempts = 3
 
         try:
             with tqdm(total=limit, desc="Retrieving tokens") as pbar:
-                while total_tokens < limit:
+                while total_tokens < limit and no_new_posts_count < max_attempts:
                     after = posts[-1]['name'] if posts else None
                     batch = self.PostRetriever(source, post_type, batch_size, after)
                     
+                    if not batch:
+                        no_new_posts_count += 1
+                        print(f"No new posts retrieved. Attempt {no_new_posts_count} of {max_attempts}")
+                        if no_new_posts_count >= max_attempts:
+                            print("Max attempts reached. Stopping retrieval.")
+                            break
+                        time.sleep(wait_time)
+                        continue
+
+                    new_posts_added = False
                     for post in batch:
                         post_tokens = len(common.Tokenizer(str(post)))
                         if total_tokens + post_tokens > limit:
@@ -80,24 +95,40 @@ class EyesOnReddit():
                         posts.append(post)
                         total_tokens += post_tokens
                         pbar.update(post_tokens)
+                        new_posts_added = True
+
+                    if new_posts_added:
+                        no_new_posts_count = 0  # Reset the counter if new posts were added
+                    else:
+                        no_new_posts_count += 1
 
                     print(f"Retrieved {len(batch)} posts. Total tokens: {total_tokens}")
                     
-                    if len(batch) < batch_size or total_tokens >= limit:
+                    if total_tokens >= limit:
+                        print("Token limit reached. Stopping retrieval.")
                         break
                     
-                    print(f"Waiting {wait_time} seconds before next batch...")
-                    time.sleep(wait_time)
+                    if no_new_posts_count < max_attempts:
+                        print(f"Waiting {wait_time} seconds before next batch...")
+                        time.sleep(wait_time)
 
-            #filename = f"{source}_{post_type}_posts.json"
-            #common.DumpToJson(posts, filename)
             print(f"\nRetrieved {len(posts)} posts from {post_type} '{source}'.")
             print(f"Total tokens: {total_tokens}")
-            #print(f"Data saved to {filename}")
             return posts
         except Exception as e:
             print(f"An error occurred: {e}")
+            return posts  # Return any posts retrieved before the error
 
     def main(self):
-        vc = VigilantClassifier(config_dir=self.config_dir,input=self.RedditHandler(self.token_limit,self.reddit_address))
-        vc_report = vc.GetReport()
+        posts = self.RedditHandler(self.token_limit, self.reddit_address)
+        if posts:
+            print(f"Retrieved {len(posts)} posts")
+            vc = VigilantClassifier(config_dir=self.config_dir, input=posts)
+            vc_report = vc.GetReport()
+            common.DumpToText(vc_report, os.path.join('export', 'vc_report.vigileye'))
+        else:
+            print("No posts were retrieved. Please check your Reddit credentials and network connection.")
+
+if __name__ == '__main__':
+    eor = EyesOnReddit()
+    eor.main()

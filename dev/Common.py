@@ -6,6 +6,7 @@ logger = CustomLogger().get_logger()
 import tiktoken
 from jinja2 import Environment 
 from jinja2 import FileSystemLoader
+import os
 tokenizer = tiktoken.get_encoding('cl100k_base')
 
 def OpenYaml(path,key=''):
@@ -44,5 +45,12 @@ def JinjaRender(template_path,posts,query_=''):
     logger.info(f'Prompt length in tokens: {len(Tokenizer(rendered_prompt))}')
     return rendered_prompt
 
-
+def DumpToText(text, path):
+    directory = os.path.dirname(path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory)
     
+    with open(path, 'w', encoding='utf-8') as file:
+        file.write(text)
+    
+    print(f"Text successfully written to {path}")    

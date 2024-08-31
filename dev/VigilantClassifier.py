@@ -7,19 +7,16 @@ from openai import OpenAI
 from PromptGen import PromptGen
 import os
 from typing import Optional
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = CustomLogger().get_logger()
 
-parser = argparse.ArgumentParser(description='Vigilant Social Tracker (Description to be added)')
-parser.add_argument('--config', type=str,required=False, help='Path to the YAML config file')
-args = parser.parse_args()
-
-CONFIG_DIR: Optional[str] = args.config if args.config else None
 
 class VigilantClassifier():
-    def __init__(self,config_dir = CONFIG_DIR, input = False):
+    def __init__(self,config_dir, input = False):
         self.config = common.OpenYaml(config_dir,'classifier')
-        self.api_key = os.getenv('OPENAIKEY')
+        self.api_key = os.getenv('OPENAIAPIKEY')
         self.model = self.config['model']
         self.client = OpenAI(api_key=self.api_key)
         self.input = input

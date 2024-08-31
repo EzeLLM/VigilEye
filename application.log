@@ -12,3 +12,13 @@
 2024-08-30 23:33:59,381 - SharedLogger - INFO - Prompt length in tokens: 2394
 2024-08-30 23:36:42,224 - SharedLogger - CRITICAL - A post did not have a key! Maybe image post?
 2024-08-30 23:36:42,228 - SharedLogger - INFO - Prompt length in tokens: 2506
+2024-08-31 16:23:06,523 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 16:24:46,247 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 16:25:26,189 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 16:25:57,071 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 17:13:37,395 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 17:13:37,399 - SharedLogger - INFO - Prompt length in tokens: 1921
+2024-08-31 17:28:59,949 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 17:28:59,964 - SharedLogger - INFO - Prompt length in tokens: 19232
+2024-08-31 18:04:19,433 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-08-31 18:04:19,448 - SharedLogger - INFO - Prompt length in tokens: 19509

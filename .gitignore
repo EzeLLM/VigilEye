@@ -1,2 +1,3 @@
 *.log
 pull_praw.py
+.env
