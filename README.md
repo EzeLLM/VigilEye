@@ -1,11 +1,15 @@
 # VigilEye
  
-An open-source project meant to track people on social media and classify them based on their ideologies and thoughts.
+An open-source social media user classifier. The classification is done according to the jinja template. there are couple default default templates and you can create your own to adapt the app for you use-case
+# Usage
+For now, the project is working on reddit, twitter part is still in development due to lack of an api.
+You need reddit api and open-ai compatible api (vllm can be used to host local models with open-ai compatible api)
+After setting your environment variables for the apis mentioned above install the requirements:
 
 # Roadmap
 - Classify social media users with llm agents and export a short summary of their ideologies thoughts and risks they may present to the state and the people
-- Text based connection between classified users and a Mernis like database
-- Export summaries to database about each person's ideology, thoughts, and potential risks. 
+- Text based connection between classified users and a user database
+- Export summaries to database about each perso
 - Link users in the database using followers, following, and possible pictures with face identification model and maybe feature map, this step requires extensive research and re-thought
 
 # Tools to be used
