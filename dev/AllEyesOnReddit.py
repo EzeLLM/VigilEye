@@ -5,6 +5,8 @@ import Common as common
 import argparse
 from tqdm import tqdm
 from VigilantClassifier import VigilantClassifier
+import time
+
 parser = argparse.ArgumentParser(description="""
 VigilEye app is made to track and evaluate social media. You are using the reddit branch of the app. This is meant to analyze users and subreddits. Usages can vary from marketing to security analysis. You adapt this app to your own usage purposes by making your own jinja2 prompt template and pass it to the app easily.
 """)
@@ -19,7 +21,7 @@ class EyesOnReddit():
     def __init__(self):
         print("here")
 
-        self.token_limit = (args.max_tokens * 0.9)
+        self.token_limit = int(args.max_tokens * 0.9)
         self.reddit_address = args.reddit
         self.config_dir = args.config
         self.reddit = praw.Reddit(
@@ -28,7 +30,7 @@ class EyesOnReddit():
             user_agent="VigilEye/1.0 (by Ezel Bayraktar)"
         )
 
-    def PostRetriever(self,source, post_type, limit=None, after=None):
+    def PostRetriever(self, source, post_type, limit=None, after=None):
         posts = []
         
         if post_type == 'subreddit':
@@ -52,29 +54,23 @@ class EyesOnReddit():
                 'selftext': submission.selftext
             }
             posts.append(post)
-
         
         return posts
 
-
-
     def RedditHandler(self, limit, source):
-        import time
-        from tqdm import tqdm
-
         post_type = 'user' if source.split('/')[0] == 'u' else 'subreddit'
         source = source.split('/')[1]
-        limit = int(limit)  
         posts = []
         batch_size = 99
         wait_time = 62  # seconds
         total_tokens = 0
         no_new_posts_count = 0
         max_attempts = 3
+        threshold = limit * 0.9  # 90% of the limit
 
         try:
-            with tqdm(total=limit, desc="Retrieving tokens") as pbar:
-                while total_tokens < limit and no_new_posts_count < max_attempts:
+            with tqdm(total=limit, desc="Retrieving tokens", unit="tokens") as pbar:
+                while total_tokens < threshold and no_new_posts_count < max_attempts:
                     after = posts[-1]['name'] if posts else None
                     batch = self.PostRetriever(source, post_type, batch_size, after)
                     
@@ -97,19 +93,20 @@ class EyesOnReddit():
                         pbar.update(post_tokens)
                         new_posts_added = True
 
+                        # Check if we've reached or exceeded the threshold after each post
+                        if total_tokens >= threshold:
+                            print(f"\nReached {int((total_tokens/limit)*100)}% of the token limit. Stopping retrieval.")
+                            break
+
                     if new_posts_added:
                         no_new_posts_count = 0  # Reset the counter if new posts were added
                     else:
                         no_new_posts_count += 1
 
-                    print(f"Retrieved {len(batch)} posts. Total tokens: {total_tokens}")
-                    
-                    if total_tokens >= limit:
-                        print("Token limit reached. Stopping retrieval.")
+                    if total_tokens >= threshold:
                         break
                     
                     if no_new_posts_count < max_attempts:
-                        print(f"Waiting {wait_time} seconds before next batch...")
                         time.sleep(wait_time)
 
             print(f"\nRetrieved {len(posts)} posts from {post_type} '{source}'.")
@@ -121,6 +118,7 @@ class EyesOnReddit():
 
     def main(self):
         posts = self.RedditHandler(self.token_limit, self.reddit_address)
+        common.DumpToJson('jsonreddit.json',posts)
         if posts:
             print(f"Retrieved {len(posts)} posts")
             vc = VigilantClassifier(config_dir=self.config_dir, input=posts)

@@ -1,12 +1,14 @@
 from jinja2 import Environment, FileSystemLoader
 import Common as common
 from SharedLogger import CustomLogger
-import CustomExceptons as ce
+import CustomExceptions as ce
+from ImageInterpreter import ImageInterpreter as imint
 logger = CustomLogger().get_logger()
 
 
 class PromptGen():
     def __init__(self,config_path,input=False):
+        self.config_path = config_path
         self.config = common.OpenYaml(config_path,'prompt_gen')
         self.input = input
     def ConstructPrompt(self):
@@ -22,6 +24,9 @@ class PromptGen():
         text_field = self.config['text_field']
         other_fields = self.config['other_fields']
     
+        if self.config['handle_pics']:
+            imint_ = imint(self.config_path)
+            posts = imint_.Handler(posts=posts)
         
         for post in posts:
             try:
@@ -36,13 +41,15 @@ class PromptGen():
                                 value = value.get(key, {})
                                 if value == None:
                                     break 
-                            if value != {}:
+                            if value != {} and value != '':
                                 post_to_template+=f"{other_}: {value}\n" 
                         except:
                             logger.critical(f"{other_} not found in a post. continue.. (This can happen)")
                             pass
                     else:
                         post_to_template+=f"{other_}: {post[other_]}\n"
+                if 'image_description' in post:
+                    post_to_template+=post['image_description']
             except KeyError:
                 logger.critical(f"A post did not have a key! Maybe image post?")
                 pass

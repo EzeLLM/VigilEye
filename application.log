@@ -24,3 +24,16 @@
 2024-08-31 18:04:19,448 - SharedLogger - INFO - Prompt length in tokens: 19509
 2024-08-31 18:45:21,638 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
 2024-08-31 18:45:21,653 - SharedLogger - INFO - Prompt length in tokens: 19398
+2024-09-06 10:02:50,046 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 10:02:50,054 - SharedLogger - INFO - Prompt length in tokens: 9589
+2024-09-06 11:32:05,031 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 11:34:45,545 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 11:36:33,567 - SharedLogger - INFO - Prompt length in tokens: 11830
+2024-09-06 16:25:28,454 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 16:25:40,535 - SharedLogger - INFO - Prompt length in tokens: 18894
+2024-09-06 16:28:53,926 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 16:29:16,920 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 16:29:26,800 - SharedLogger - INFO - Prompt length in tokens: 19691
+2024-09-06 20:16:05,852 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 20:16:33,440 - SharedLogger - ERROR - Error While opening json file in VigilantClassifier. File does not exist? Aborting
+2024-09-06 20:16:57,271 - SharedLogger - INFO - Prompt length in tokens: 19630

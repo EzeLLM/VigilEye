@@ -3,9 +3,19 @@ prompt_gen:
   template_path: 'templates/subreddit.j2'
   text_field: title
   other_fields:
+    - 'selftext'
+    - 'author'
     - 'score'
     - 'num_comments'
-    - 'selftext'
+  handle_pics: True
+
+image_interpreter:
+  image_formats:
+    - 'png' # png is default for reddit
+  image_field: 'url'
+  max_new_tokens: 512
+  use_local_model: False
+  model: gpt-4o-mini
 
   
 classifier:

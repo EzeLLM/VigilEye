@@ -1,6 +1,8 @@
 # VigilEye
  
 An open-source social media user classifier. The classification is done according to the jinja template. there are couple default default templates and you can create your own to adapt the app for you use-case. The project still needs a lot of optimizations and has a long way to go, a thousand mile starts with a step. Example output with 27000 tokens generated for less than 2 cents with open-ai gpt4o-mini api for conspiracy subreddit is in export folder. 
+# News
+VigilEye can now interpret pictures from the posts. Read documents, find whether any significant people are in the picture, and find what are the memes mocking! 
 # Usage
 For now, the project is working on reddit, twitter part is still in development due to lack of an api.
 You need reddit api and open-ai compatible api (vllm can be used to host local models with open-ai compatible api)
@@ -18,6 +20,14 @@ The application uses YAML configuration files for defining how prompts are gener
 - text_field: The field in the JSON data that will be used as the main text for classification. Default for reddit is 'title'.
 - other_fields: List of additional fields from the JSON data that may be used in the prompt. Example fields include 'score', 'num_comments', and 'selftext'. for subfields use
 ```outer_key>>mid_key>>target_key```
+- handle_pics: telling the app whether to handle pictures in posts or to ignore them
+
+**image_interpreter**:
+- image_formats: a list containing the image formats of the pictures. this is used, for reddit at least, since reddit gives link that may contain the picture or a generic link from the post. so this is used to know whether the link is a picture. reddit uses png
+- image_field: the field in the json that the picture link is contained in
+- max_new_tokens: max new tokens for image interpretation response
+- use_local_model: boolean on whether to use local model or open-api compatible api. 
+- model: specify the model name. currently needed for api method only. 
 
 
 **classifier**:

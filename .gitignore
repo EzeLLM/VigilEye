@@ -1,3 +1,5 @@
 *.log
-pull_praw.py
+posts.json
 .env
+jsonreddit.json
+application.log

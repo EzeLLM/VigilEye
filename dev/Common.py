@@ -7,6 +7,7 @@ import tiktoken
 from jinja2 import Environment 
 from jinja2 import FileSystemLoader
 import os
+import torch
 tokenizer = tiktoken.get_encoding('cl100k_base')
 
 def OpenYaml(path,key=''):
@@ -54,3 +55,17 @@ def DumpToText(text, path):
         file.write(text)
     
     print(f"Text successfully written to {path}")    
+
+def EndsWith(text: str, format_list: list):
+    return text.endswith(tuple(format_list))
+
+
+def Device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    
+    else:
+        return torch.device("cpu")
