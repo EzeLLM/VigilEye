@@ -9,7 +9,8 @@ image_interpreter:
   model: gpt-4o-mini
 
 classifier:
-  model: gpt-4o-mini
+  model_type: gemini  # or openai
+  model_name: gemini-1.5-flash  # or gpt-4o-mini
   history_path: templates/history.json
   query:
     - 'location'
