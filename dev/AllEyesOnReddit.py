@@ -6,63 +6,132 @@ import argparse
 from tqdm import tqdm
 from VigilantClassifier import VigilantClassifier
 import time
+import CustomExceptions as ce
+from SharedLogger import CustomLogger
+logger = CustomLogger().get_logger()
 
 parser = argparse.ArgumentParser(description="""
 VigilEye app is made to track and evaluate social media. You are using the reddit branch of the app. This is meant to analyze users and subreddits. Usages can vary from marketing to security analysis. You adapt this app to your own usage purposes by making your own jinja2 prompt template and pass it to the app easily.
 """)
-parser.add_argument('--reddit', type=str,required=True, help='username or subreddit name. eg.: u/someUser , r/someSub')
+parser.add_argument('--reddit', type=str,required=False, help='username or subreddit name. eg.: u/someUser , r/someSub')
 parser.add_argument('--max_tokens',type=int,required=True,help='max tokens to be retrieved. The gpt4o-mini has context length of 128K tokens. 10% token safe zone will be applied')
 parser.add_argument('--config',type=str,required=True,help='yaml config path')
-
 args = parser.parse_args()
 load_dotenv()
 
-class EyesOnReddit():
-    def __init__(self):
-        print("here")
 
-        self.token_limit = int(args.max_tokens * 0.9)
-        self.reddit_address = args.reddit
+class AllEyesOnReddit():
+    def __init__(self):
+        self.config = common.OpenYaml(args.config,'all_eyes_on_reddit')
+        self.token_limit = int(args.max_tokens)
+        self.reddit_address = args.reddit if args.reddit else self.config['reddit_']
+        print(self.reddit_address)
+        self.use_images = self.config['use_images']
+        self.other_fields = self.config['other_fields']
+        self.main_field = self.config['main_field']
         self.config_dir = args.config
+        self.user_field = self.config['author_field']
+
+
         self.reddit = praw.Reddit(
             client_id=os.getenv('REDDIT_CLIENT_ID'),
             client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
             user_agent="VigilEye/1.0 (by Ezel Bayraktar)"
         )
 
+        self.DO_PERUSER_CLASSIFY = True if self.config['author_field'] else False
+        try:
+            self.template = self.config['template']
+        except:
+            if not self.DO_PERUSER_CLASSIFY:
+                raise ce.CustomError('You should provide a template unless you provided user and sub template!')
+            else:
+                pass
     def PostRetriever(self, source, post_type, limit=None, after=None):
+        source = source.split('/')[1]
+        print(source,post_type)
         posts = []
         
         if post_type == 'subreddit':
             subreddit = self.reddit.subreddit(source)
             submissions = subreddit.hot(limit=limit, params={'after': after})
+            for submission in submissions:
+                post = {
+                    'name': submission.name,
+                    'title': submission.title,
+                    'author': submission.author.name if submission.author else '[UNKNOWN]',
+                    'created_utc': submission.created_utc,
+                    'score': submission.score,
+                    'num_comments': submission.num_comments,
+                    'url': submission.url,
+                    'selftext': submission.selftext,
+                    'type': 'submission'
+                }
+                posts.append(post)
+
         elif post_type == 'user':
             user = self.reddit.redditor(source)
-            submissions = user.submissions.hot(limit=limit, params={'after': after})
+            
+            # Retrieve submissions
+            submissions = user.submissions.new(limit=limit, params={'after': after})
+            for submission in submissions:
+                post = {
+                    'name': submission.name,
+                    'title': submission.title,
+                    'author': submission.author.name if submission.author else '[UNKNOWN]',
+                    'created_utc': submission.created_utc,
+                    'score': submission.score,
+                    'num_comments': submission.num_comments,
+                    'url': submission.url,
+                    'selftext': submission.selftext,
+                    'type': 'submission'
+                }
+                posts.append(post)
+            
+            # Retrieve comments
+            # comments = user.comments.new(limit=limit, params={'after': after})
+            # for comment in comments:
+            #     post = {
+            #         'name': comment.name,
+            #         'author': comment.author.name if comment.author else '[UNKNOWN]',
+            #         'created_utc': comment.created_utc,
+            #         'score': comment.score,
+            #         'body': comment.body,
+            #         'type': 'comment'
+            #     }
+            #     posts.append(post)
+
         else:
             raise ValueError("Invalid post_type. Use 'subreddit' or 'user'.")
-        
-        for submission in submissions:
-            post = {
-                'name': submission.name,
-                'title': submission.title,
-                'author': submission.author.name if submission.author else '[deleted]',
-                'created_utc': submission.created_utc,
-                'score': submission.score,
-                'num_comments': submission.num_comments,
-                'url': submission.url,
-                'selftext': submission.selftext
-            }
-            posts.append(post)
+
+        if len(posts) == 0:
+            logger.debug(f'{source} >> {post_type}')
+        else:
+            print(f"user:{post_type}{source}\nposts:{posts}")
         
         return posts
 
-    def RedditHandler(self, limit, source):
-        post_type = 'user' if source.split('/')[0] == 'u' else 'subreddit'
-        source = source.split('/')[1]
+    def get_post_type(self,source):
+        source = source.replace('\\', '/')
+
+        if source.startswith('u/'):
+            return 'user'
+        elif source.startswith('r/'):
+            return 'subreddit'
+        else:
+            print(source)
+            raise ValueError("Invalid source format. Must start with 'u/' for users or 'r/' for subreddits.")
+
+    def RedditHandler(self, limit, source:str):
+        post_type = self.get_post_type(source=source)
+
+        source = source.replace('\\','/')
+
+        
+
         posts = []
-        batch_size = 99
-        wait_time = 62  # seconds
+        batch_size = 100
+        wait_time = 61  # seconds
         total_tokens = 0
         no_new_posts_count = 0
         max_attempts = 3
@@ -75,13 +144,8 @@ class EyesOnReddit():
                     batch = self.PostRetriever(source, post_type, batch_size, after)
                     
                     if not batch:
-                        no_new_posts_count += 1
-                        print(f"No new posts retrieved. Attempt {no_new_posts_count} of {max_attempts}")
-                        if no_new_posts_count >= max_attempts:
-                            print("Max attempts reached. Stopping retrieval.")
-                            break
-                        time.sleep(wait_time)
-                        continue
+                        print('No posts, or no new posts.')
+                        return posts
 
                     new_posts_added = False
                     for post in batch:
@@ -115,18 +179,56 @@ class EyesOnReddit():
         except Exception as e:
             print(f"An error occurred: {e}")
             return posts  # Return any posts retrieved before the error
+        
+    def _default(self,reddit_address,_template=None):
+        _template = self.template if _template == None else _template
+        posts = self.RedditHandler(self.token_limit, reddit_address)
+        if posts.__len__() == 0:
+            return 'User or subreddit has no posts!'
+        common.DumpToJson('jsonreddit.json',posts)
+        print(f"Retrieved {len(posts)} posts")
+        vc = VigilantClassifier(config_dir=self.config_dir,template=_template,main_field=self.main_field,other_fields=self.other_fields,handle_pics=self.use_images,input=posts)
+        vc_report = vc.GetReport()
+        return vc_report
+    
+
+    def _per_user_classifier(self,reddit_address):
+
+        try:
+            user_template = self.config['user_template']
+            sub_template = self.config['sub_template']
+        except:
+            raise ce.CustomError('User or Sub template is not provided. maybe both?')
+
+        posts = self.RedditHandler(self.token_limit, reddit_address)
+        # authors = [f"{d[self.user_field]}" for d in posts]
+        authors = list(set([f"{d[self.user_field]}" for d in posts]))
+        user_reports={}
+        for author in authors:
+            report = self._default(f'u\{author}',_template=user_template)
+            user_reports[author] = report
+            logger.debug(f'{author}>>{report}')
+        common.DumpToJson('userswithsub.json',user_reports)
+        vc = VigilantClassifier(config_dir=self.config_dir,template=sub_template,main_field=self.main_field,other_fields=self.other_fields,handle_pics=self.use_images,input=user_reports)
+        vc_report = vc.GetReport()
+        return vc_report
+
+
+
 
     def main(self):
-        posts = self.RedditHandler(self.token_limit, self.reddit_address)
-        common.DumpToJson('jsonreddit.json',posts)
-        if posts:
-            print(f"Retrieved {len(posts)} posts")
-            vc = VigilantClassifier(config_dir=self.config_dir, input=posts)
-            vc_report = vc.GetReport()
-            common.DumpToText(vc_report, os.path.join('export', 'vc_report.vigileye'))
+        if self.DO_PERUSER_CLASSIFY:
+            if not self.reddit_address.startswith('r/'):
+                print(self.reddit_address)
+                raise ce.CustomError("ERROR: REDDIT PER USER CLASSIFIER USED BUT REDDIT ADDRESS IS NOT FOR SUBREDDIT")
+                
+            
+            common.DumpToText(self._per_user_classifier(self.reddit_address), os.path.join('export', 'vc_report.vigileye'))
+
+
         else:
-            print("No posts were retrieved. Please check your Reddit credentials and network connection.")
+            common.DumpToText(self._default(self.reddit_address), os.path.join('export', 'vc_report.vigileye'))
 
 if __name__ == '__main__':
-    eor = EyesOnReddit()
+    eor = AllEyesOnReddit()
     eor.main()

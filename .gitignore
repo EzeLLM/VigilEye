@@ -3,3 +3,4 @@ posts.json
 .env
 jsonreddit.json
 application.log
+dev/__pycache__

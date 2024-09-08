@@ -7,29 +7,32 @@ logger = CustomLogger().get_logger()
 
 
 class PromptGen():
-    def __init__(self,config_path,input=False):
-        self.config_path = config_path
-        self.config = common.OpenYaml(config_path,'prompt_gen')
+    def __init__(self,config_path,main_field,other_fields,template,input,handle_pics=False):
+        self.main_field = main_field
+        self.other_fields = other_fields
+        self.template = template
+        self.handle_pics = handle_pics
         self.input = input
+        self.config_path = config_path
     def ConstructPrompt(self):
+        if common.OpenYaml(self.config_path,'all_eyes_on_reddit')['sub_template'] == self.template:
+            prompt = common.JinjaRender_per_user(self.template,keys_and_values=self.input)
+
         posts_to_template = []
-        try:
-            json_path = self.config['json_path']
-            posts = common.OpenJson(json_path)
-        except:
-            if not self.input:
-                raise ce.CustomError("No input was passed to PromptGen, pass either json path in yaml or json dict as an arg in init")
-            posts = self.input
+        posts = self.input
             
-        text_field = self.config['text_field']
-        other_fields = self.config['other_fields']
+        text_field = self.main_field
+        other_fields = self.other_fields
     
-        if self.config['handle_pics']:
+        if self.handle_pics:
             imint_ = imint(self.config_path)
             posts = imint_.Handler(posts=posts)
         
         for post in posts:
             try:
+                if not isinstance(post,dict):
+                    logger.critical(f"Post is not of type dict! post>> {post}")
+                    continue
                 main_text = post[text_field]
                 post_to_template = f'Main post text: {main_text}\n'
                 for other_ in other_fields:
@@ -55,7 +58,7 @@ class PromptGen():
                 pass
 
             posts_to_template.append(post_to_template)
-        prompt = common.JinjaRender(posts=posts_to_template,template_path=self.config['template_path'])
+        prompt = common.JinjaRender(posts=posts_to_template,template_path=self.template)
         return prompt
     
 

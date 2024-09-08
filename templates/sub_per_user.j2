@@ -1,0 +1,23 @@
+Hey detective, here i give you security reports prepared by another detectives for users from the subreddit {{ subreddit }}.
+As an output, I want a json that is a list of dictionaries and is constructed using the following format:
+
+risk metric guide:
+neutral: User shows no extreme ideology and is considered safe to the system and the public.
+low: User is opposing some political manners and may be against some of the agenda of the goverment.
+moderate: User is against the goverment and shows signs of ideologism but shows no extreme views.
+risky: User is showing extreme thoughts and may posses risk to the public or the system. 
+
+You dont have to stay strict to the guide and may have some degrees of freedom.
+
+Example for a user:
+{
+    'user': << name of the user >>
+    'risk_level': << risk level depending on the metric above >>
+    'reason': << what is the reason for this risk level? be so brief. >>
+}
+
+The response must be json only!
+
+Users along with their reports:
+
+{{ user_reports }}

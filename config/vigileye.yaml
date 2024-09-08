@@ -1,23 +1,13 @@
-prompt_gen:
-  json_path: ''
-  template_path: 'templates/subreddit.j2'
-  text_field: title
-  other_fields:
-    - 'selftext'
-    - 'author'
-    - 'score'
-    - 'num_comments'
-  handle_pics: True
+
 
 image_interpreter:
   image_formats:
     - 'png' # png is default for reddit
   image_field: 'url'
-  max_new_tokens: 512
+  max_new_tokens: 128
   use_local_model: False
   model: gpt-4o-mini
 
-  
 classifier:
   model: gpt-4o-mini
   history_path: templates/history.json
@@ -25,3 +15,20 @@ classifier:
     - 'location'
     - 'real name'
     - 'age'
+
+
+all_eyes_on_reddit:
+  criteria: 'to be implemented later'
+  main_field: 'title'
+  other_fields:
+    - 'selftext'
+    - 'score'
+    - 'num_comments'
+  author_field: 'author'
+  template: templates/subreddit.j2
+  user_template: 'templates/security2.j2'
+  sub_template: 'templates/sub_per_user.j2'
+  reddit_: 'r/KGBTR'
+  use_images: True 
+
+  

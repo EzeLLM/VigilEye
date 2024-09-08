@@ -46,6 +46,30 @@ def JinjaRender(template_path,posts,query_=''):
     logger.info(f'Prompt length in tokens: {len(Tokenizer(rendered_prompt))}')
     return rendered_prompt
 
+
+def convert_dict_to_text(user_reports):
+    text_representation = ""
+    for user, report in user_reports.items():
+        text_representation += f"User: {user}\nReport: {report}\n\n"
+    return text_representation
+
+def JinjaRender_per_user(template_path, keys_and_values):
+    logger.debug(f'keys_and_vlaues:{keys_and_values}')
+    # Convert dictionary to text
+    user_reports_text = convert_dict_to_text(keys_and_values)
+    
+    # Setup Jinja2 environment
+    env = Environment(loader=FileSystemLoader('.'))
+    template = env.get_template(template_path)
+    
+    # Render template with text representation
+    rendered_prompt = template.render(user_reports=user_reports_text)
+    print('rendered>>>>>>>>>>>',rendered_prompt)
+    logger.debug(f'rendered template>{rendered_prompt}')
+    return rendered_prompt
+
+
+
 def DumpToText(text, path):
     directory = os.path.dirname(path)
     if directory and not os.path.exists(directory):

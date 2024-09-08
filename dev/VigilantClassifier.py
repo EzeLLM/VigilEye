@@ -14,13 +14,15 @@ logger = CustomLogger().get_logger()
 
 
 class VigilantClassifier():
-    def __init__(self,config_dir, input = False):
+    def __init__(self,config_dir, template, main_field, other_fields,handle_pics=False, input = False):
+        self.template = template
         self.config = common.OpenYaml(config_dir,'classifier')
         self.api_key = os.getenv('OPENAIAPIKEY')
         self.model = self.config['model']
         self.client = OpenAI(api_key=self.api_key)
         self.input = input
-        self.PromptGet = PromptGen(config_path=config_dir,input=self.input)
+        self.PromptGet = PromptGen(config_path=config_dir,input=self.input,main_field=main_field,other_fields=other_fields,handle_pics=handle_pics,template=template)
+
 
     def ModelResponse(self,history,prompt=''):
         if prompt:
@@ -33,15 +35,12 @@ class VigilantClassifier():
 
         return response.choices[0].message.content, history.append({'role':'assistant','content':response.choices[0].message.content})
     
-    def GetReport(self):
+    def GetReport(self,):
         prompt = self.PromptGet.ConstructPrompt()
         history = common.OpenJson(self.config['history_path'])
         response ,_ = self.ModelResponse(history=history,prompt=prompt)
         return response
-        
-
-
-
+    
 
 if __name__ == "__main__":
     vc = VigilantClassifier()
