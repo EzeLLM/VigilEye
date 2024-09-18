@@ -3,4 +3,5 @@ posts.json
 .env
 jsonreddit.json
 application.log
+response2.txt
 dev/__pycache__
