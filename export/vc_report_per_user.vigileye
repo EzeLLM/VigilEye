@@ -1,0 +1,39 @@
+```json
+[
+    {
+        "user": "dalkon",
+        "risk_level": "neutral",
+        "reason": "Focuses on scientific and technological topics without political discourse."
+    },
+    {
+        "user": "amarnaredux",
+        "risk_level": "moderate",
+        "reason": "Engages with conspiracy theories and shows skepticism towards government actions."
+    },
+    {
+        "user": "TesTurEnergy",
+        "risk_level": "moderate",
+        "reason": "Engages with conspiracy theories and expresses distrust towards government and corporate entities."
+    },
+    {
+        "user": "iPhone_3GS",
+        "risk_level": "neutral",
+        "reason": "Focuses on automotive topics with no political views or affiliations."
+    },
+    {
+        "user": "Marc-Seifer",
+        "risk_level": "neutral",
+        "reason": "Primarily academic focus on historical figures with no political agenda."
+    },
+    {
+        "user": "CStudent10",
+        "risk_level": "neutral",
+        "reason": "Posts are benign and focus on personal interests without political alignment."
+    },
+    {
+        "user": "sylsau",
+        "risk_level": "low",
+        "reason": "Critiques Trump's policies and engages with political issues without extremist views."
+    }
+]
+```

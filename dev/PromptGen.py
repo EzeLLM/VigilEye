@@ -7,17 +7,25 @@ logger = CustomLogger().get_logger()
 
 
 class PromptGen():
-    def __init__(self,config_path,main_field,other_fields,template,input,handle_pics=False):
+    def __init__(self,config_path,main_field,other_fields,template,input__,handle_pics=False):
         self.main_field = main_field
         self.other_fields = other_fields
         self.template = template
         self.handle_pics = handle_pics
-        self.input = input
+        self.input = input__
         self.config_path = config_path
-    def ConstructPrompt(self):
-        if common.OpenYaml(self.config_path,'all_eyes_on_reddit')['sub_template'] == self.template:
+    # def ConstructPrompt(self,input,peruser: bool):
+    #     if peruser:
+    #         prompt = common.JinjaRender_per_user(self.template,input)
+    #     else:
+    #         pass
+    #         ## TODO implement here
+    #         ## unify template rendering
+    #     return prompt
+    def ConstructPrompt(self,peruser: bool=False):
+        if peruser:
             prompt = common.JinjaRender_per_user(self.template,keys_and_values=self.input)
-
+            return prompt
         posts_to_template = []
         posts = self.input
             

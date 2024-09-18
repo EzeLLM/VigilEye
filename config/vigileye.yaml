@@ -1,3 +1,6 @@
+llm:
+  LLM_type: openai
+  LLM_model: gpt-4o-mini
 
 
 image_interpreter:
@@ -9,8 +12,7 @@ image_interpreter:
   model: gpt-4o-mini
 
 classifier:
-  model_type: gemini  # or openai
-  model_name: gemini-1.5-flash  # or gpt-4o-mini
+  model: gpt-4o-mini
   history_path: templates/history.json
   query:
     - 'location'
@@ -29,7 +31,7 @@ all_eyes_on_reddit:
   template: templates/subreddit.j2
   user_template: 'templates/security2.j2'
   sub_template: 'templates/sub_per_user.j2'
-  reddit_: 'r/KGBTR'
+  reddit_: 'r/Turkey'
   use_images: True 
 
   

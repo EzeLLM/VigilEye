@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
 from openai import OpenAI
 import google.generativeai as genai
-
+from dotenv import load_dotenv
+import os
+load_dotenv()
+GEMINI_API = os.getenv('GEMINIAPIKEY')
+OPENAI_API = os.getenv('OPENAIAPIKEY')
 class LLMModel(ABC):
     @abstractmethod
     def generate_response(self, messages):
@@ -31,10 +35,10 @@ class GeminiModel(LLMModel):
         response = self.model.generate_content(prompt)
         return response.text
 
-def get_llm_model(model_type, api_key, model_name):
+def get_llm_model(model_type, model_name):
     if model_type == "openai":
-        return OpenAIModel(api_key, model_name)
+        return OpenAIModel(OPENAI_API, model_name)
     elif model_type == "gemini":
-        return GeminiModel(api_key, model_name)
+        return GeminiModel(GEMINI_API, model_name)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")

@@ -8,6 +8,7 @@ from VigilantClassifier import VigilantClassifier
 import time
 import CustomExceptions as ce
 from SharedLogger import CustomLogger
+import sys
 logger = CustomLogger().get_logger()
 
 parser = argparse.ArgumentParser(description="""
@@ -42,11 +43,13 @@ class AllEyesOnReddit():
         self.DO_PERUSER_CLASSIFY = True if self.config['author_field'] else False
         try:
             self.template = self.config['template']
-        except:
+            self.user_template = self.config['user_template']
+            self.sub_template = self.config['sub_template']
+        except KeyError as e:
             if not self.DO_PERUSER_CLASSIFY:
                 raise ce.CustomError('You should provide a template unless you provided user and sub template!')
             else:
-                pass
+                raise ce.CustomError(f'Missing required template: {e}')
     def PostRetriever(self, source, post_type, limit=None, after=None):
         source = source.split('/')[1]
         print(source,post_type)
@@ -104,11 +107,10 @@ class AllEyesOnReddit():
         else:
             raise ValueError("Invalid post_type. Use 'subreddit' or 'user'.")
 
-        if len(posts) == 0:
-            logger.debug(f'{source} >> {post_type}')
-        else:
-            print(f"user:{post_type}{source}\nposts:{posts}")
-        
+        # if len(posts) == 0:
+        #     logger.debug(f'{source} >> {post_type}')
+        # else:
+            # print(f"user:{post_type}{source}\nposts:{posts}")
         return posts
 
     def get_post_type(self,source):
@@ -134,8 +136,8 @@ class AllEyesOnReddit():
         wait_time = 61  # seconds
         total_tokens = 0
         no_new_posts_count = 0
-        max_attempts = 3
-        threshold = limit * 0.9  # 90% of the limit
+        max_attempts = 2
+        threshold = limit * 0.95  # 90% of the limit
 
         try:
             with tqdm(total=limit, desc="Retrieving tokens", unit="tokens") as pbar:
@@ -168,10 +170,12 @@ class AllEyesOnReddit():
                         no_new_posts_count += 1
 
                     if total_tokens >= threshold:
+                        print(f"\nReached {int((total_tokens/limit)*100)}% of the token limit. Stopping retrieval.")
                         break
                     
                     if no_new_posts_count < max_attempts:
                         time.sleep(wait_time)
+                    # break
 
             print(f"\nRetrieved {len(posts)} posts from {post_type} '{source}'.")
             print(f"Total tokens: {total_tokens}")
@@ -180,54 +184,51 @@ class AllEyesOnReddit():
             print(f"An error occurred: {e}")
             return posts  # Return any posts retrieved before the error
         
-    def _default(self,reddit_address,_template=None):
-        _template = self.template if _template == None else _template
+    def _per_user_classifier(self, reddit_address):
         posts = self.RedditHandler(self.token_limit, reddit_address)
-        if posts.__len__() == 0:
-            return 'User or subreddit has no posts!'
-        common.DumpToJson('jsonreddit.json',posts)
-        print(f"Retrieved {len(posts)} posts")
-        vc = VigilantClassifier(config_dir=self.config_dir,template=_template,main_field=self.main_field,other_fields=self.other_fields,handle_pics=self.use_images,input=posts)
-        vc_report = vc.GetReport()
-        return vc_report
-    
-
-    def _per_user_classifier(self,reddit_address):
-
-        try:
-            user_template = self.config['user_template']
-            sub_template = self.config['sub_template']
-        except:
-            raise ce.CustomError('User or Sub template is not provided. maybe both?')
-
-        posts = self.RedditHandler(self.token_limit, reddit_address)
-        # authors = [f"{d[self.user_field]}" for d in posts]
-        authors = list(set([f"{d[self.user_field]}" for d in posts]))
-        user_reports={}
+        authors = list(set([post[self.user_field] for post in posts if post[self.user_field] != '[UNKNOWN]']))
+        # common.DumpToText('\n'.join(authors),'authors.txt')
+        
+        user_reports = {}
         for author in authors:
-            report = self._default(f'u\{author}',_template=user_template)
+            report = self._default(f'u/{author}', _template=self.user_template)
             user_reports[author] = report
-            logger.debug(f'{author}>>{report}')
-        common.DumpToJson('userswithsub.json',user_reports)
-        vc = VigilantClassifier(config_dir=self.config_dir,template=sub_template,main_field=self.main_field,other_fields=self.other_fields,handle_pics=self.use_images,input=user_reports)
+            logger.debug(f'{author} >> {report}')
+        print(type(user_reports))
+        # print(">- ",user_reports[0])
+        # common.DumpToJson('userswithsub.json', user_reports)
+
+        
+        vc = VigilantClassifier(config_dir=self.config_dir, template=self.sub_template, 
+                                main_field=self.main_field, other_fields=self.other_fields, 
+                                handle_pics=self.use_images, input__=user_reports,mode='peruser')
         vc_report = vc.GetReport()
         return vc_report
 
-
-
+    def _default(self, reddit_address, _template=None, _posts=None):
+        _template = self.template if _template is None else _template
+        posts = _posts if _posts is not None else self.RedditHandler(self.token_limit, reddit_address)
+        if len(posts) == 0:
+            return 'User or subreddit has no posts!'
+        # common.DumpToJson('jsonreddit.json', posts)
+        print(f"Retrieved {len(posts)} posts from {reddit_address}")
+        vc = VigilantClassifier(config_dir=self.config_dir, template=_template, 
+                                main_field=self.main_field, other_fields=self.other_fields, 
+                                handle_pics=self.use_images, input__=posts)
+        vc_report = vc.GetReport()
+        return vc_report
 
     def main(self):
         if self.DO_PERUSER_CLASSIFY:
             if not self.reddit_address.startswith('r/'):
-                print(self.reddit_address)
                 raise ce.CustomError("ERROR: REDDIT PER USER CLASSIFIER USED BUT REDDIT ADDRESS IS NOT FOR SUBREDDIT")
-                
             
-            common.DumpToText(self._per_user_classifier(self.reddit_address), os.path.join('export', 'vc_report.vigileye'))
-
-
+            report = self._per_user_classifier(self.reddit_address)
+            print(report)
+            common.DumpToText(report, os.path.join('export', 'vc_report_per_user.vigileye'))
         else:
-            common.DumpToText(self._default(self.reddit_address), os.path.join('export', 'vc_report.vigileye'))
+            report = self._default(self.reddit_address)
+            common.DumpToText(report, os.path.join('export', 'vc_report.vigileye'))
 
 if __name__ == '__main__':
     eor = AllEyesOnReddit()

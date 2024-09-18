@@ -55,14 +55,14 @@ def convert_dict_to_text(user_reports):
 
 def JinjaRender_per_user(template_path, keys_and_values):
     logger.debug(f'keys_and_vlaues:{keys_and_values}')
-    # Convert dictionary to text
+    # convert dictionary to text
     user_reports_text = convert_dict_to_text(keys_and_values)
     
-    # Setup Jinja2 environment
+    # cetup Jinja2 environment
     env = Environment(loader=FileSystemLoader('.'))
     template = env.get_template(template_path)
     
-    # Render template with text representation
+    # render template with text representation
     rendered_prompt = template.render(user_reports=user_reports_text)
     print('rendered>>>>>>>>>>>',rendered_prompt)
     logger.debug(f'rendered template>{rendered_prompt}')
