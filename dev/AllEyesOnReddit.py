@@ -9,38 +9,47 @@ import time
 import CustomExceptions as ce
 from SharedLogger import CustomLogger
 import sys
+
+# Initialize the logger
 logger = CustomLogger().get_logger()
 
+# Load environment variables
+load_dotenv()
+
+# Parse command-line arguments
 parser = argparse.ArgumentParser(description="""
 VigilEye app is made to track and evaluate social media. You are using the reddit branch of the app. This is meant to analyze users and subreddits. Usages can vary from marketing to security analysis. You adapt this app to your own usage purposes by making your own jinja2 prompt template and pass it to the app easily.
 """)
-parser.add_argument('--reddit', type=str,required=False, help='username or subreddit name. eg.: u/someUser , r/someSub')
-parser.add_argument('--max_tokens',type=int,required=True,help='max tokens to be retrieved. The gpt4o-mini has context length of 128K tokens. 10% token safe zone will be applied')
-parser.add_argument('--config',type=str,required=True,help='yaml config path')
+parser.add_argument('--reddit', type=str, required=False, help='username or subreddit name. eg.: u/someUser , r/someSub')
+parser.add_argument('--max_tokens', type=int, required=True, help='max tokens to be retrieved. The gpt4o-mini has context length of 128K tokens. 10% token safe zone will be applied')
+parser.add_argument('--config', type=str, required=True, help='yaml config path')
 args = parser.parse_args()
-load_dotenv()
 
-
-class AllEyesOnReddit():
+class AllEyesOnReddit:
     def __init__(self):
-        self.config = common.OpenYaml(args.config,'all_eyes_on_reddit')
+        # Load configuration
+        self.config = common.OpenYaml(args.config, 'all_eyes_on_reddit')
         self.token_limit = int(args.max_tokens)
-        self.reddit_address = args.reddit if args.reddit else self.config['reddit_']
-        print(self.reddit_address)
-        self.use_images = self.config['use_images']
-        self.other_fields = self.config['other_fields']
-        self.main_field = self.config['main_field']
+        self.reddit_address = args.reddit if args.reddit else self.config.get('reddit_', 'r/Turkey')
+        logger.info(f"Analyzing Reddit source: {self.reddit_address}")
+        
+        # Configuration flags and fields
+        self.use_images = self.config.get('use_images', False)
+        self.other_fields = self.config.get('other_fields', [])
+        self.main_field = self.config.get('main_field', 'title')
+        self.user_field = self.config.get('author_field', 'author')
         self.config_dir = args.config
-        self.user_field = self.config['author_field']
 
-
+        # Initialize PRAW (Reddit API) client
         self.reddit = praw.Reddit(
             client_id=os.getenv('REDDIT_CLIENT_ID'),
             client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
-            user_agent="VigilEye/1.0 (by Ezel Bayraktar)"
+            user_agent=os.getenv('REDDIT_USER_AGENT', "VigilEye/1.0 (by Ezel Bayraktar, Mert Ergün)")
         )
 
-        self.DO_PERUSER_CLASSIFY = True if self.config['author_field'] else False
+        # Determine if per-user classification is needed
+        self.DO_PERUSER_CLASSIFY = True if self.user_field else False
+
         try:
             self.template = self.config['template']
             self.user_template = self.config['user_template']
@@ -50,9 +59,22 @@ class AllEyesOnReddit():
                 raise ce.CustomError('You should provide a template unless you provided user and sub template!')
             else:
                 raise ce.CustomError(f'Missing required template: {e}')
+    
     def PostRetriever(self, source, post_type, limit=None, after=None):
+        """
+        Retrieves posts from a subreddit or user.
+
+        Args:
+            source (str): The source name (e.g., 'r/someSub' or 'u/someUser').
+            post_type (str): 'subreddit' or 'user'.
+            limit (int, optional): Number of posts to retrieve.
+            after (str, optional): The post ID to start retrieving after.
+
+        Returns:
+            list: A list of post dictionaries.
+        """
         source = source.split('/')[1]
-        print(source,post_type)
+        logger.debug(f"Retrieving {post_type} posts for: {source}")
         posts = []
         
         if post_type == 'subreddit':
@@ -91,7 +113,7 @@ class AllEyesOnReddit():
                 }
                 posts.append(post)
             
-            # Retrieve comments
+            # Uncomment below to retrieve comments as well
             # comments = user.comments.new(limit=limit, params={'after': after})
             # for comment in comments:
             #     post = {
@@ -105,15 +127,24 @@ class AllEyesOnReddit():
             #     posts.append(post)
 
         else:
+            logger.error("Invalid post_type. Use 'subreddit' or 'user'.")
             raise ValueError("Invalid post_type. Use 'subreddit' or 'user'.")
 
-        # if len(posts) == 0:
-        #     logger.debug(f'{source} >> {post_type}')
-        # else:
-            # print(f"user:{post_type}{source}\nposts:{posts}")
         return posts
 
-    def get_post_type(self,source):
+    def get_post_type(self, source):
+        """
+        Determines the type of the Reddit source.
+
+        Args:
+            source (str): The source string (e.g., 'u/someUser' or 'r/someSub').
+
+        Returns:
+            str: 'user' or 'subreddit'.
+
+        Raises:
+            ValueError: If the source format is invalid.
+        """
         source = source.replace('\\', '/')
 
         if source.startswith('u/'):
@@ -121,15 +152,22 @@ class AllEyesOnReddit():
         elif source.startswith('r/'):
             return 'subreddit'
         else:
-            print(source)
+            logger.error("Invalid source format. Must start with 'u/' for users or 'r/' for subreddits.")
             raise ValueError("Invalid source format. Must start with 'u/' for users or 'r/' for subreddits.")
 
-    def RedditHandler(self, limit, source:str):
+    def RedditHandler(self, limit, source: str):
+        """
+        Handles the retrieval of Reddit posts with token limits and batching.
+
+        Args:
+            limit (int): Maximum number of tokens to retrieve.
+            source (str): The Reddit source (e.g., 'u/someUser' or 'r/someSub').
+
+        Returns:
+            list: A list of post dictionaries.
+        """
         post_type = self.get_post_type(source=source)
-
-        source = source.replace('\\','/')
-
-        
+        source = source.replace('\\', '/')
 
         posts = []
         batch_size = 100
@@ -137,7 +175,7 @@ class AllEyesOnReddit():
         total_tokens = 0
         no_new_posts_count = 0
         max_attempts = 2
-        threshold = limit * 0.95  # 90% of the limit
+        threshold = limit * 0.95  # 95% of the limit
 
         try:
             with tqdm(total=limit, desc="Retrieving tokens", unit="tokens") as pbar:
@@ -146,7 +184,7 @@ class AllEyesOnReddit():
                     batch = self.PostRetriever(source, post_type, batch_size, after)
                     
                     if not batch:
-                        print('No posts, or no new posts.')
+                        logger.warning('No posts retrieved or no new posts available.')
                         return posts
 
                     new_posts_added = False
@@ -161,7 +199,7 @@ class AllEyesOnReddit():
 
                         # Check if we've reached or exceeded the threshold after each post
                         if total_tokens >= threshold:
-                            print(f"\nReached {int((total_tokens/limit)*100)}% of the token limit. Stopping retrieval.")
+                            logger.info(f"Reached {int((total_tokens / limit) * 100)}% of the token limit. Stopping retrieval.")
                             break
 
                     if new_posts_added:
@@ -170,66 +208,112 @@ class AllEyesOnReddit():
                         no_new_posts_count += 1
 
                     if total_tokens >= threshold:
-                        print(f"\nReached {int((total_tokens/limit)*100)}% of the token limit. Stopping retrieval.")
+                        logger.info(f"Reached {int((total_tokens / limit) * 100)}% of the token limit. Stopping retrieval.")
                         break
                     
                     if no_new_posts_count < max_attempts:
+                        logger.debug(f"No new posts added in this batch. Waiting for {wait_time} seconds before retrying...")
                         time.sleep(wait_time)
-                    # break
 
-            print(f"\nRetrieved {len(posts)} posts from {post_type} '{source}'.")
-            print(f"Total tokens: {total_tokens}")
+            logger.info(f"Retrieved {len(posts)} posts from {post_type} '{source}'.")
+            logger.info(f"Total tokens: {total_tokens}")
             return posts
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logger.error(f"An error occurred while retrieving posts: {e}")
             return posts  # Return any posts retrieved before the error
-        
+
     def _per_user_classifier(self, reddit_address):
+        """
+        Handles per-user classification within a subreddit.
+
+        Args:
+            reddit_address (str): The subreddit address (e.g., 'r/someSub').
+
+        Returns:
+            str: The generated report.
+        """
         posts = self.RedditHandler(self.token_limit, reddit_address)
         authors = list(set([post[self.user_field] for post in posts if post[self.user_field] != '[UNKNOWN]']))
-        # common.DumpToText('\n'.join(authors),'authors.txt')
-        
+        logger.debug(f"Found {len(authors)} unique authors.")
+
         user_reports = {}
         for author in authors:
             report = self._default(f'u/{author}', _template=self.user_template)
             user_reports[author] = report
-            logger.debug(f'{author} >> {report}')
-        print(type(user_reports))
-        # print(">- ",user_reports[0])
-        # common.DumpToJson('userswithsub.json', user_reports)
+            logger.debug(f'Author: {author} >> Report: {report}')
 
-        
-        vc = VigilantClassifier(config_dir=self.config_dir, template=self.sub_template, 
-                                main_field=self.main_field, other_fields=self.other_fields, 
-                                handle_pics=self.use_images, input__=user_reports,mode='peruser')
+        vc = VigilantClassifier(
+            config_dir=self.config_dir,
+            template=self.sub_template, 
+            main_field=self.main_field,
+            other_fields=self.other_fields, 
+            handle_pics=self.use_images,
+            input__=user_reports,
+            mode='peruser'
+        )
         vc_report = vc.GetReport()
         return vc_report
 
     def _default(self, reddit_address, _template=None, _posts=None):
+        """
+        Handles default classification (subreddit level).
+
+        Args:
+            reddit_address (str): The subreddit address (e.g., 'r/someSub').
+            _template (str, optional): Path to the Jinja2 template. Defaults to None.
+            _posts (list, optional): List of posts to classify. Defaults to None.
+
+        Returns:
+            str: The generated report.
+        """
         _template = self.template if _template is None else _template
         posts = _posts if _posts is not None else self.RedditHandler(self.token_limit, reddit_address)
         if len(posts) == 0:
+            logger.warning('No posts retrieved for classification.')
             return 'User or subreddit has no posts!'
-        # common.DumpToJson('jsonreddit.json', posts)
-        print(f"Retrieved {len(posts)} posts from {reddit_address}")
-        vc = VigilantClassifier(config_dir=self.config_dir, template=_template, 
-                                main_field=self.main_field, other_fields=self.other_fields, 
-                                handle_pics=self.use_images, input__=posts)
+
+        logger.info(f"Retrieved {len(posts)} posts from {reddit_address}")
+
+        vc = VigilantClassifier(
+            config_dir=self.config_dir,
+            template=_template, 
+            main_field=self.main_field,
+            other_fields=self.other_fields, 
+            handle_pics=self.use_images,
+            input__=posts,
+            mode='default'
+        )
         vc_report = vc.GetReport()
         return vc_report
 
     def main(self):
+        """
+        Main execution method for the AllEyesOnReddit class.
+        Determines whether to perform per-user classification or default classification based on configuration.
+        """
         if self.DO_PERUSER_CLASSIFY:
             if not self.reddit_address.startswith('r/'):
+                logger.error("REDDIT PER USER CLASSIFIER USED BUT REDDIT ADDRESS IS NOT FOR SUBREDDIT")
                 raise ce.CustomError("ERROR: REDDIT PER USER CLASSIFIER USED BUT REDDIT ADDRESS IS NOT FOR SUBREDDIT")
             
             report = self._per_user_classifier(self.reddit_address)
             print(report)
-            common.DumpToText(report, os.path.join('export', 'vc_report_per_user.vigileye'))
+            export_path = os.path.join('export', 'vc_report_per_user.vigileye')
+            common.DumpToText(report, export_path)
+            logger.info(f"Per-user report saved to {export_path}")
         else:
             report = self._default(self.reddit_address)
-            common.DumpToText(report, os.path.join('export', 'vc_report.vigileye'))
+            export_path = os.path.join('export', 'vc_report.vigileye')
+            common.DumpToText(report, export_path)
+            logger.info(f"Default report saved to {export_path}")
 
 if __name__ == '__main__':
-    eor = AllEyesOnReddit()
-    eor.main()
+    try:
+        eor = AllEyesOnReddit()
+        eor.main()
+    except ce.CustomError as ce_err:
+        logger.error(f"CustomError: {ce_err}")
+        sys.exit(1)
+    except Exception as ex:
+        logger.error(f"An unexpected error occurred: {ex}")
+        sys.exit(1)

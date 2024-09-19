@@ -1,6 +1,6 @@
 llm:
-  LLM_type: openai
-  LLM_model: gpt-4o-mini
+  LLM_type: ollama # Options: openai, gemini, ollama, vllm
+  LLM_model: gemma2 # Replace with your desired model name
 
 
 image_interpreter:
@@ -32,6 +32,6 @@ all_eyes_on_reddit:
   user_template: 'templates/security2.j2'
   sub_template: 'templates/sub_per_user.j2'
   reddit_: 'r/Turkey'
-  use_images: True 
+  use_images: False
 
   
