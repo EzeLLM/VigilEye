@@ -8,6 +8,7 @@ from jinja2 import Environment
 from jinja2 import FileSystemLoader
 import os
 import torch
+
 tokenizer = tiktoken.get_encoding('cl100k_base')
 
 def OpenYaml(path,key=''):
@@ -31,42 +32,29 @@ def DumpToJson(path, data):
     with open(path, 'w') as json_file:
         json.dump(data, json_file, indent=4)
 
+def OpenTxt(path):
+    with open(path, 'r') as file:
+        return file.read()
 
 def Tokenizer(text):
     return tokenizer.encode(text=text)
 
 
-def JinjaRender(template_path,posts,query_=''):
+def JinjaRender(template_path,input,mode='default'):
     env = Environment(loader=FileSystemLoader('.'))
     template = env.get_template(template_path)
-    if query_:
-        rendered_prompt = template.render(posts=posts,query_=query_)
-    else:
-        rendered_prompt = template.render(posts=posts)
-    logger.info(f'Prompt length in tokens: {len(Tokenizer(rendered_prompt))}')
+    if mode == 'default':
+        rendered_prompt = template.render(contents=input)
+    elif mode == 'per_user':
+        rendered_prompt = template.render(contents=convert_dict_to_list(input))
     return rendered_prompt
 
 
-def convert_dict_to_text(user_reports):
-    text_representation = ""
+def convert_dict_to_list(user_reports):
+    text_representation = []
     for user, report in user_reports.items():
-        text_representation += f"User: {user}\nReport: {report}\n\n"
+        text_representation.append(f"User: {user}\nReport: {report}\n\n")
     return text_representation
-
-def JinjaRender_per_user(template_path, keys_and_values):
-    logger.debug(f'keys_and_vlaues:{keys_and_values}')
-    # convert dictionary to text
-    user_reports_text = convert_dict_to_text(keys_and_values)
-    
-    # cetup Jinja2 environment
-    env = Environment(loader=FileSystemLoader('.'))
-    template = env.get_template(template_path)
-    
-    # render template with text representation
-    rendered_prompt = template.render(user_reports=user_reports_text)
-    print('rendered>>>>>>>>>>>',rendered_prompt)
-    logger.debug(f'rendered template>{rendered_prompt}')
-    return rendered_prompt
 
 
 

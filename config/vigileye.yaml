@@ -1,23 +1,19 @@
-llm:
-  LLM_type: ollama # Options: openai, gemini, ollama, vllm
-  LLM_model: gemma2 # Replace with your desired model name
 
+llm: # used for report extraction
+  LLM_type: openai # Options: openai, gemini, ollama, vllm
+  LLM_model: gpt-4o-mini # Replace with your desired model name
 
+#⛔️ Caution: Local interpretation should only be used with multimodal models. Currently supporting OLLAMA. VLLM is so soon! ⛔️'
 image_interpreter:
+  ignore_img_not_found: False
   image_formats:
     - 'png' # png is default for reddit
   image_field: 'url'
-  max_new_tokens: 128
-  use_local_model: False
-  model: gpt-4o-mini
+  host: 'ollama'
+  model: 'llava'
 
 classifier:
-  model: gpt-4o-mini
   history_path: templates/history.json
-  query:
-    - 'location'
-    - 'real name'
-    - 'age'
 
 
 all_eyes_on_reddit:

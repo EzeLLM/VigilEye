@@ -62,7 +62,7 @@ class VigilantClassifier():
         response, updated_history = self.ModelResponse(history=history, prompt=prompt)
         
         # Optionally, update the history file
-        common.DumpToJson(self.config['history_path'], updated_history)
+        # common.DumpToJson(self.config['history_path'], updated_history)
 
         return response
     

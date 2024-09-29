@@ -21,4 +21,7 @@ The response must be json only!
 
 Users along with their reports:
 
-{{ user_reports }}
+{% for content in contents %}
+>>{{ content }}
+
+{% endfor %}

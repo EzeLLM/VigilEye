@@ -24,7 +24,7 @@ class PromptGen():
     #     return prompt
     def ConstructPrompt(self,peruser: bool=False):
         if peruser:
-            prompt = common.JinjaRender_per_user(self.template,keys_and_values=self.input)
+            prompt = common.JinjaRender(self.template,input=self.input,mode='per_user')
             return prompt
         posts_to_template = []
         posts = self.input
@@ -66,7 +66,7 @@ class PromptGen():
                 pass
 
             posts_to_template.append(post_to_template)
-        prompt = common.JinjaRender(posts=posts_to_template,template_path=self.template)
+        prompt = common.JinjaRender(input=posts_to_template,template_path=self.template)
         return prompt
     
 

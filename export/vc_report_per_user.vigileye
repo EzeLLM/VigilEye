@@ -1,39 +1,59 @@
 ```json
 [
     {
-        "user": "dalkon",
-        "risk_level": "neutral",
-        "reason": "Focuses on scientific and technological topics without political discourse."
+        "user": "pacmanpill",
+        "risk_level": "risky",
+        "reason": "User promotes anti-Israel sentiments and conspiracy theories, showing distrust towards the U.S. government."
     },
     {
-        "user": "amarnaredux",
-        "risk_level": "moderate",
-        "reason": "Engages with conspiracy theories and shows skepticism towards government actions."
-    },
-    {
-        "user": "TesTurEnergy",
-        "risk_level": "moderate",
-        "reason": "Engages with conspiracy theories and expresses distrust towards government and corporate entities."
-    },
-    {
-        "user": "iPhone_3GS",
-        "risk_level": "neutral",
-        "reason": "Focuses on automotive topics with no political views or affiliations."
-    },
-    {
-        "user": "Marc-Seifer",
-        "risk_level": "neutral",
-        "reason": "Primarily academic focus on historical figures with no political agenda."
-    },
-    {
-        "user": "CStudent10",
-        "risk_level": "neutral",
-        "reason": "Posts are benign and focus on personal interests without political alignment."
-    },
-    {
-        "user": "sylsau",
+        "user": "smchenry75",
         "risk_level": "low",
-        "reason": "Critiques Trump's policies and engages with political issues without extremist views."
+        "reason": "User expresses critical views on political figures but does not incite violence or unrest."
+    },
+    {
+        "user": "Direct-Money-4206",
+        "risk_level": "moderate",
+        "reason": "User shows skepticism towards government and supports conspiracy theories, indicating potential radicalization."
+    },
+    {
+        "user": "Log_Which",
+        "risk_level": "moderate",
+        "reason": "User criticizes government actions and supports criminal justice reform, engaging in conspiracy theories."
+    },
+    {
+        "user": "ImOnTheBus",
+        "risk_level": "moderate",
+        "reason": "User promotes anti-vaccine sentiments and skepticism towards government health measures, which could incite divisive opinions."
+    },
+    {
+        "user": "DarkSpaceCovenant",
+        "risk_level": "moderate",
+        "reason": "User criticizes U.S. foreign policy and military actions, showing strong anti-Israel sentiments."
+    },
+    {
+        "user": "Adolf_the_Painter89",
+        "risk_level": "low",
+        "reason": "User expresses critical views on economic inequality but lacks extremist behavior."
+    },
+    {
+        "user": "Inspiredfallacy",
+        "risk_level": "moderate",
+        "reason": "User shows potential anti-Semitic sentiments and skepticism towards mainstream narratives, which could incite harmful ideologies."
+    },
+    {
+        "user": "Amos_Quito",
+        "risk_level": "moderate",
+        "reason": "User engages with politically charged topics and critiques government narratives, indicating potential for radicalization."
+    },
+    {
+        "user": "External-Noise-4832",
+        "risk_level": "moderate",
+        "reason": "User expresses strong anti-establishment sentiments and critiques government policies, which may mobilize like-minded individuals."
+    },
+    {
+        "user": "Patient-Fly9676",
+        "risk_level": "moderate",
+        "reason": "User's conspiratorial views and criticism of societal norms could lead to radicalization."
     }
 ]
 ```
