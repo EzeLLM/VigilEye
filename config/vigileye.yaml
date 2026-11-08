@@ -76,6 +76,10 @@ roles:
     # - {provider: ollama, model: llava}
   synthesizer:                     # final report; falls back to analyst if unset
     - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+  # verifier:                      # optional citation grounding checker (falls back to extractor, then analyst)
+  #   - {provider: ollama, model: bespoke-minicheck, context_window: 32000}
+  # critic:                        # optional red-team reviewer for --critic; prefer a different model family
+  #   - {provider: local, model: Qwen/Qwen2.5-32B-Instruct, context_window: 32768}   # from the synthesizer
 
 llm:
   temperature: 0.2
@@ -102,9 +106,47 @@ analysis:
   max_concurrency: 4
   # template_dir: my_templates     # override any prompt template
 
+  # Computed evidence signals: deterministic measurements (no LLM) cited as [sig:...] ids.
+  signals: true                    # copypasta / near-duplicate clusters, bursts, coordination
+  collapse_near_dups: true         # the map step sees one representative per copypasta cluster
+  near_dup_threshold: 0.8          # MinHash/Jaccard similarity for near-duplicates
+  near_dup_min_size: 3             # smallest cluster reported as copypasta and collapsed
+  bursts:                          # temporal bursts: Kleinberg + robust rolling z-score (false disables)
+    z_threshold: 3.5
+    min_events: 5
+  coordination:                    # co-sharing networks tested against a permutation null (false disables)
+    window_s: 60                   # co-share window in seconds, or "auto" (CooRnet-style estimate)
+    min_weight: 2                  # distinct co-share occasions before an account pair counts as repeated
+    n_iter: 200                    # permutations; smallest p = 1/(n_iter+1)
+    public_accounts: []            # allowlisted public/media handles shown verbatim, e.g. ["bluesky:apnews.com"]
+    # null_model: block            # block (default: posts reassigned within platform x day) | object
+    # stratum_s: 86400             # time block of the block null model
+  # Accounts are HMAC-pseudonymised per case with $VIGILEYE_PSEUDONYM_KEY. Set it: the built-in default key is public.
+
+  # Claim-level citation verification (CLI: --verify / --no-verify).
+  verify: true                     # every key-judgment citation is checked against its source text
+  verify_llm: true                 # lexical pre-filter, then the verifier role with a verbatim-quote guard
+  verify_max_pairs: 60             # (judgment, source) pairs checked per report; the rest are kept unchecked
+
+  # Tradecraft critic (CLI: --critic adds the LLM red-team pass).
+  critique: true                   # rule-based lint: circular reporting, overreach, WEP/confidence, staleness
+  critic_llm: false                # LLM devil's advocacy / key-assumptions check (critic role)
+  stale_days: 30                   # evidence older than this many days is flagged as stale
+
+  # Authoritative vulnerability grounding (CLI: --ground-cves). Off by default: it downloads reference data.
+  ground_cves: false               # check CVEs against CISA KEV + FIRST EPSS (keyless; only CVE ids are sent)
+  # warninglists_dir: ~/src/misp-warninglists   # optional MISP warninglists clone (benign-infrastructure lists)
+
+intel:                             # reference data cache for analysis.ground_cves / `vigileye refdata`
+  cache_dir: ${VIGILEYE_REFDATA:-.vigileye/refdata}
+  ttl_hours: 24
+  offline: false                   # true: never download, use the cache only
+  epss: true
+
 output:
   dir: export
-  formats: [md, json, html]
+  formats: [md, json, html]        # also: stix (STIX 2.1 bundle), navigator (ATT&CK Navigator layer)
+  tlp: clear                       # TLP marking on STIX exports: clear | green | amber | red (CLI: --tlp)
 
 store:
   path: ${VIGILEYE_STORE:-.vigileye/cases.db}

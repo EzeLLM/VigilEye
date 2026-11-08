@@ -3,8 +3,8 @@
 Every model VigilEye talks to — OpenAI, a vLLM / llama.cpp / SGLang / LM Studio
 box under your desk, Ollama's /v1 endpoint, OpenRouter, Groq, a private
 "stealth" deployment behind custom auth headers — is reached through the same
-Chat Completions protocol. Roles (analyst, extractor, vision, synthesizer)
-map to ordered fallback chains of ``provider/model`` entries.
+Chat Completions protocol. Roles (analyst, extractor, vision, synthesizer, and
+the optional verifier and critic) map to ordered fallback chains of ``provider/model`` entries.
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ log = logging.getLogger("vigileye.llm")
 ROLE_FALLBACKS = {
     "synthesizer": ["analyst"],
     "extractor": ["analyst"],
+    "verifier": ["extractor", "analyst"],  # citation grounding checks (analysis/verify.py)
+    "critic": ["analyst"],                 # red-team review (analysis/critic.py)
     "vision": [],
     "analyst": [],
 }
@@ -413,7 +415,7 @@ class LLMRouter:
         return {
             "providers": {n: {"base_url": p.base_url, "auth": bool(p.api_key), "headers": sorted(p.headers)}
                           for n, p in self.providers.items()},
-            "roles": {r: [e.label for e in self.chain(r)] for r in sorted(set(self.roles) | {"analyst", "extractor", "vision", "synthesizer"})},
+            "roles": {r: [e.label for e in self.chain(r)] for r in sorted(set(self.roles) | {"analyst", "extractor", "vision", "synthesizer", "verifier", "critic"})},
         }
 
     def ping(self, role: str) -> dict:

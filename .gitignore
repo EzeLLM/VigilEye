@@ -8,5 +8,5 @@ __pycache__/
 build/
 dist/
 .vigileye/
-export/
+/export/
 .DS_Store

@@ -22,6 +22,27 @@ def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
+TLP_LEVELS = ("clear", "green", "amber", "red")
+
+
+def _formats(value: str | None) -> list[str] | None:
+    """Parse and validate a ``--formats`` comma list before any work is done."""
+    if not value:
+        return None
+    from .report import FORMATS
+
+    out = []
+    for f in value.split(","):
+        f = f.strip().lower().lstrip(".")
+        f = "md" if f == "markdown" else f
+        if not f:
+            continue
+        if f not in FORMATS:
+            raise ValueError(f"unknown report format {f!r}; choose from {','.join(FORMATS)}")
+        out.append(f)
+    return out or None
+
+
 class App:
     """Shared wiring used by the CLI and the HTTP server."""
 
@@ -59,7 +80,9 @@ class App:
 
     def analyze(self, case: str, *, lens: str | None = None, query: str = "", platform: str | None = None,
                 since: datetime | None = None, limit: int | None = None, vision: bool | None = None,
-                ach: bool | None = None, formats: list[str] | None = None, out: str | None = None) -> tuple:
+                ach: bool | None = None, formats: list[str] | None = None, out: str | None = None,
+                verify: bool | None = None, critic: bool | None = None, ground_cves: bool | None = None,
+                tlp: str | None = None) -> tuple:
         from .analysis import AnalysisEngine
         from .report import write_report
 
@@ -69,10 +92,12 @@ class App:
         self.progress(f"analyzing {len(docs)} documents from case '{case}'")
         engine = AnalysisEngine(self.router, self.config)
         report = engine.run(docs, lens=lens or self.config.get("analysis.lens", "general"), query=query, case=case,
-                            use_vision=vision, ach=ach, progress=self.progress)
+                            use_vision=vision, ach=ach, verify=verify, critic=critic, ground_cves=ground_cves,
+                            progress=self.progress)
         rid = self.store.save_report(report)
         paths = write_report(report, out or self.config.get("output.dir", "export"),
-                             formats=tuple(formats or self.config.get("output.formats", ["md", "json", "html"])))
+                             formats=tuple(formats or self.config.get("output.formats", ["md", "json", "html"])),
+                             tlp=tlp or self.config.get("output.tlp", "clear") or "clear")
         return rid, report, paths
 
 
@@ -95,7 +120,19 @@ def _add_analysis_flags(p: argparse.ArgumentParser) -> None:
     v.add_argument("--vision", dest="vision", action="store_true", default=None, help="describe images with the vision role")
     v.add_argument("--no-vision", dest="vision", action="store_false")
     p.add_argument("--ach", action="store_true", default=None, help="run Analysis of Competing Hypotheses")
-    p.add_argument("--formats", help="comma list: md,json,html")
+    vf = p.add_mutually_exclusive_group()
+    vf.add_argument("--verify", dest="verify", action="store_true", default=None,
+                    help="check that each cited source supports its key judgment (default: analysis.verify)")
+    vf.add_argument("--no-verify", dest="verify", action="store_false", help="skip citation verification")
+    p.add_argument("--critic", action="store_true", default=None,
+                   help="add an LLM red-team pass (critic role) to the rule-based tradecraft critic")
+    gc = p.add_mutually_exclusive_group()
+    gc.add_argument("--ground-cves", dest="ground_cves", action="store_true", default=None,
+                    help="check CVEs against CISA KEV and FIRST EPSS (network unless intel.offline)")
+    gc.add_argument("--no-ground-cves", dest="ground_cves", action="store_false")
+    p.add_argument("--formats", help="comma list: md,json,html,stix,navigator")
+    p.add_argument("--tlp", choices=TLP_LEVELS, default=None,
+                   help="TLP marking for the STIX export (default: output.tlp, else clear)")
     p.add_argument("--out", help="output directory")
 
 
@@ -133,7 +170,9 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--case", required=True)
     sh = sub.add_parser("show", help="print a stored report")
     sh.add_argument("report_id", type=int)
-    sh.add_argument("--format", choices=["md", "json"], default="md")
+    sh.add_argument("--format", choices=["md", "json", "html", "stix", "navigator"], default="md")
+    sh.add_argument("--tlp", choices=TLP_LEVELS, default=None,
+                    help="TLP marking for --format stix (default: output.tlp, else clear)")
     sub.add_parser("lenses", help="list analytic lenses")
     sub.add_parser("collectors", help="list collectors and target syntax")
     pv = sub.add_parser("providers", help="show providers/roles; --test pings every role")
@@ -141,6 +180,14 @@ def build_parser() -> argparse.ArgumentParser:
     ex = sub.add_parser("export", help="export a case as JSONL")
     ex.add_argument("--case", required=True)
     ex.add_argument("--out", required=True)
+    sg = sub.add_parser("signals", help="compute deterministic evidence signals for a case (no LLM)")
+    sg.add_argument("--case", required=True)
+    sg.add_argument("--json", action="store_true", help="print signals and clusters as JSON")
+    rd = sub.add_parser("refdata", help="reference data cache: CISA KEV and FIRST EPSS")
+    rd_sub = rd.add_subparsers(dest="refdata_cmd", required=True)
+    rd_sub.add_parser("update", help="download the CISA KEV catalog now")
+    rc = rd_sub.add_parser("cve", help="show the KEV entry and EPSS score for one CVE")
+    rc.add_argument("cve_id")
     sv = sub.add_parser("serve", help="run the JSON HTTP API")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)
@@ -189,12 +236,25 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(router.describe(), indent=2))
             if args.test:
                 ok = True
-                for role in ("analyst", "extractor", "vision", "synthesizer"):
+                for role in ("analyst", "extractor", "vision", "synthesizer", "verifier", "critic"):
                     res = router.ping(role)
                     ok &= res["ok"]
                     print(f"{role:<12} " + (f"OK  {res['provider']}/{res['model']} {res['latency_s']}s" if res["ok"] else f"FAIL {res['error']}"))
                 return 0 if ok else 1
             return 0
+        if args.cmd == "refdata":
+            from .intel import RefCache, lookup_cve, refresh
+            cache = RefCache.from_config(config)
+            if args.refdata_cmd == "update":
+                res = refresh(cache)
+                for e in res["errors"]:
+                    _err(f"warning: {e}")
+                print(f"CISA KEV catalog {res['catalogVersion'] or 'unavailable'}: {res['count']} entries"
+                      + ("" if res["refreshed"] else " (not refreshed)"))
+                return 0 if res["refreshed"] else 1
+            res = lookup_cve(args.cve_id, cache)
+            print(json.dumps(res, indent=2))
+            return 0 if res["in_kev"] is not None or res["epss"] else 1
         if args.cmd == "serve":
             from .server import serve
             serve(config, args.host, args.port, store_path=args.store)
@@ -206,13 +266,15 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(counts, indent=2))
             return 0 if any(v["collected"] for v in counts.values()) else 1
         if args.cmd in ("analyze", "run"):
+            formats = _formats(args.formats)  # fail fast on a typo, before collecting or calling a model
             case = getattr(args, "case", None) or _slug(args.targets[0])
             if args.cmd == "run":
                 app.collect(args.targets, case, args.limit, _kv(args.opt))
             since = datetime.fromisoformat(args.since) if args.since else None
             rid, report, paths = app.analyze(case, lens=args.lens, query=args.query, platform=args.platform, since=since,
                                              limit=args.max_docs, vision=args.vision, ach=args.ach,
-                                             formats=args.formats.split(",") if args.formats else None, out=args.out)
+                                             formats=formats, out=args.out, verify=args.verify,
+                                             critic=args.critic, ground_cves=args.ground_cves, tlp=args.tlp)
             _print_report_summary(rid, report, paths)
             return 0
         if args.cmd == "cases":
@@ -224,12 +286,32 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"#{r['id']:<5} {r['lens']:<10} {r['created_at']}  {str(r.get('bluf', ''))[:90]}")
             return 0
         if args.cmd == "show":
-            from .report import render_json, render_markdown
+            from .report import render_html, render_json, render_markdown
             rep = app.store.get_report(args.report_id)
             if rep is None:
                 _err(f"no report #{args.report_id}")
                 return 1
-            print(render_markdown(rep) if args.format == "md" else render_json(rep))
+            if args.format in ("stix", "navigator"):
+                from .export import report_to_navigator_layer, report_to_stix
+                tlp = args.tlp or app.config.get("output.tlp", "clear") or "clear"
+                out = report_to_stix(rep, tlp=tlp) if args.format == "stix" else report_to_navigator_layer(rep)
+                print(json.dumps(out, indent=2, ensure_ascii=False))
+            elif args.format == "html":
+                print(render_html(rep), end="")
+            else:
+                print(render_markdown(rep) if args.format == "md" else render_json(rep))
+            return 0
+        if args.cmd == "signals":
+            from .analysis import AnalysisEngine
+            from .analysis.signals import compute_signals, signals_markdown
+            docs = app.store.get_documents(args.case)
+            if not docs:
+                _err(f"case '{args.case}' has no documents")
+                return 1
+            res = compute_signals(docs, settings=AnalysisEngine(app.router, config).settings, case=args.case)
+            for e in res["errors"]:
+                _err(f"warning: {e}")
+            print(json.dumps(res, indent=2, default=str) if args.json else signals_markdown(res["signals"]))
             return 0
         if args.cmd == "export":
             n = app.store.export_jsonl(args.case, args.out)

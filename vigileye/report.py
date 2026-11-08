@@ -56,6 +56,15 @@ def _usage_totals(stats: dict) -> dict:
     return {}
 
 
+def _extra_sections(report: Report) -> list[dict]:
+    """``meta['extra_sections']`` entries with markdown (shared hook H0 for computed/added sections)."""
+    out = []
+    for sec in (report.meta or {}).get("extra_sections") or []:
+        if isinstance(sec, dict) and str(sec.get("markdown") or "").strip():
+            out.append(sec)
+    return out
+
+
 def _md_table(headers: list[str], rows: Iterable[list[Any]]) -> list[str]:
     out = ["| " + " | ".join(headers) + " |", "|" + "---|" * len(headers)]
     out += ["| " + " | ".join(_cell(c) for c in r) + " |" for r in rows]
@@ -109,6 +118,8 @@ def render_markdown(report: Report) -> str:
                        [[s.get("id", ""), s.get("platform", ""), s.get("source", ""), s.get("grade", ""),
                          s.get("url", "")] for s in r.sources if isinstance(s, dict)])
         L.append("")
+    for sec in _extra_sections(r):
+        L += [f"## {sec.get('title') or sec.get('id')}", "", str(sec["markdown"]).strip(), ""]
     L += ["## Methodology", "", f"Lens `{r.lens}` applied to query: {r.query}", ""]
     stats = {k: v for k, v in (r.stats or {}).items() if k not in ("llm_usage", "usage")}
     for k, v in stats.items():
@@ -156,6 +167,7 @@ def _inline(s: str) -> str:
 def md_to_html(text: str) -> str:
     out: list[str] = []
     para: list[str] = []
+    table: list[list[str]] = []
     list_tag: str | None = None
 
     def flush_para():
@@ -169,11 +181,27 @@ def md_to_html(text: str) -> str:
             out.append(f"</{list_tag}>")
             list_tag = None
 
+    def flush_table():
+        if table:
+            head, *body = table
+            out.append('<div class="tw"><table><thead><tr>' + "".join(f"<th>{_inline(c)}</th>" for c in head)
+                       + "</tr></thead><tbody>"
+                       + "".join("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in row) + "</tr>" for row in body)
+                       + "</tbody></table></div>")
+            table.clear()
+
     for raw in (text or "").splitlines():
         line = _E(raw.rstrip())
         stripped = line.strip()
         if not stripped:
-            flush_para(); close_list(); continue
+            flush_para(); close_list(); flush_table(); continue
+        if len(stripped) > 1 and stripped.startswith("|") and stripped.endswith("|"):
+            flush_para(); close_list()
+            cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", stripped[1:-1])]
+            if not all(re.fullmatch(r":?-{3,}:?", c) for c in cells):  # skip the |---|---| separator row
+                table.append(cells)
+            continue
+        flush_table()
         m = re.match(r"^(#{1,6})\s+(.*)$", stripped)
         if m:
             flush_para(); close_list()
@@ -191,7 +219,7 @@ def md_to_html(text: str) -> str:
             continue
         close_list()
         para.append(stripped)
-    flush_para(); close_list()
+    flush_para(); close_list(); flush_table()
     return "\n".join(out)
 
 
@@ -273,6 +301,9 @@ def render_html(report: Report) -> str:
                                          for k in ("id", "platform", "source", "grade")) + f"<td>{link}</td></tr>")
         P += ["<h2>Sources</h2>", '<div class="tw"><table><thead><tr><th>ID</th><th>Platform</th><th>Source</th>'
               f'<th>Grade</th><th>URL</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>']
+    for sec in _extra_sections(r):
+        P += [f"<h2>{_E(str(sec.get('title') or sec.get('id')))}</h2>",
+              f'<section class="extra">{md_to_html(str(sec["markdown"]))}</section>']
     P += ["<h2>Methodology</h2>", f"<p>Lens <code>{_E(r.lens)}</code> applied to query: {_E(r.query)}</p>"]
     stats = [(k, v) for k, v in (r.stats or {}).items() if k not in ("llm_usage", "usage")]
     totals = _usage_totals(r.stats or {})
@@ -291,24 +322,33 @@ def render_html(report: Report) -> str:
 
 # ----------------------------------------------------------------------------- files
 _RENDERERS = {"md": render_markdown, "json": render_json, "html": render_html}
+_EXT = {"stix": "stix.json", "navigator": "layer.json"}
+FORMATS = ("md", "json", "html", "stix", "navigator")
 
 
 def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", str(s)).strip("-").lower() or "x"
 
 
-def write_report(report: Report, out_dir, formats=("md", "json", "html"), basename: str | None = None) -> list[Path]:
+def write_report(report: Report, out_dir, formats=("md", "json", "html"), basename: str | None = None,
+                 *, tlp: str = "clear") -> list[Path]:
+    """Write ``report`` in each of ``formats`` (md, json, html, stix, navigator); ``tlp`` marks the STIX bundle."""
+    from .export import report_to_navigator_layer, report_to_stix  # lazy: keeps report.py import-light, no cycles
+
+    renderers = {**_RENDERERS,
+                 "stix": lambda r: json.dumps(report_to_stix(r, tlp=tlp), indent=2, ensure_ascii=False),
+                 "navigator": lambda r: json.dumps(report_to_navigator_layer(r), indent=2, ensure_ascii=False)}
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     base = basename or f"{_slug(report.case)}-{_slug(report.lens)}-{report.created_at.strftime('%Y%m%d-%H%M%S')}"
     paths = []
     for fmt in formats:
-        fmt = fmt.lower().lstrip(".")
+        fmt = fmt.strip().lower().lstrip(".")
         fmt = "md" if fmt == "markdown" else fmt
-        if fmt not in _RENDERERS:
+        if fmt not in renderers:
             raise ValueError(f"unknown report format: {fmt}")
-        p = out / f"{base}.{fmt}"
-        p.write_text(_RENDERERS[fmt](report), encoding="utf-8")
+        p = out / f"{base}.{_EXT.get(fmt, fmt)}"
+        p.write_text(renderers[fmt](report), encoding="utf-8")
         paths.append(p)
     return paths
 
@@ -317,4 +357,5 @@ def load_report(path) -> Report:
     return Report.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-__all__ = ["render_markdown", "render_json", "render_html", "write_report", "load_report", "defang", "md_to_html"]
+__all__ = ["render_markdown", "render_json", "render_html", "write_report", "load_report", "defang", "md_to_html",
+           "FORMATS"]

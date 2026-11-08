@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .chunking import chunk_documents, render_chunk
+from .critic import review_report
 from .engine import DEFAULT_SETTINGS, AnalysisEngine, analyze
 from .enrich import (
     defang,
@@ -13,6 +14,8 @@ from .enrich import (
     summarize_indicators,
 )
 from .lenses import Lens, get_lens, list_lenses, load_lens, register_lens, template_env
+from .signals import compute_signals, signals_markdown
+from .temporal import detect_bursts, temporal_profile
 from .tradecraft import (
     ADMIRALTY_CREDIBILITY,
     ADMIRALTY_RELIABILITY,
@@ -23,6 +26,7 @@ from .tradecraft import (
     normalize_wep,
     wep_for_probability,
 )
+from .verify import verify_report
 
 __all__ = [
     "AnalysisEngine", "analyze", "DEFAULT_SETTINGS",
@@ -32,4 +36,5 @@ __all__ = [
     "Lens", "get_lens", "list_lenses", "load_lens", "register_lens", "template_env",
     "WEP_SCALE", "wep_for_probability", "normalize_wep", "normalize_confidence",
     "ADMIRALTY_RELIABILITY", "ADMIRALTY_CREDIBILITY", "default_source_grade", "ICD203_BLOCK",
+    "compute_signals", "signals_markdown", "detect_bursts", "temporal_profile", "verify_report", "review_report",
 ]

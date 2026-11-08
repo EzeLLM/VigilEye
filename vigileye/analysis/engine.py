@@ -2,8 +2,10 @@
 
 Pipeline::
 
-    dedupe -> [vision] -> IOC regex -> select & chunk -> MAP (parallel, analyst)
-           -> entity merge -> REDUCE (synthesizer) -> [ACH (analyst)] -> Report
+    dedupe -> computed signals (copypasta, bursts, coordination; no LLM) -> [vision]
+           -> IOC regex + warninglists [+ KEV/EPSS grounding] -> collapse near-dups -> select & chunk
+           -> MAP (parallel, analyst) -> entity merge -> REDUCE (synthesizer) -> [ACH (analyst)]
+           -> Report -> [citation verification] -> [reference-fact checks] -> [tradecraft critic]
 
 Every LLM step degrades gracefully: failures are recorded in
 ``report.meta["errors"]`` and ``report.gaps`` and the engine keeps whatever
@@ -33,7 +35,25 @@ from .enrich import (
     merge_entities,
     summarize_indicators,
 )
+from ..intel import (
+    BUILTIN_LISTS,
+    annotate_indicators,
+    apply_grounding,
+    ground_cves as _ground_cves,
+    load_misp_warninglists,
+    reference_facts_block,
+)
+from .critic import review_report
 from .lenses import Lens, get_lens, template_env
+from .signals import (
+    collapse_near_duplicates,
+    compute_signals,
+    render_signals_block,
+    signals_for_refs,
+    signals_markdown,
+)
+from .temporal import describe_profile, temporal_profile
+from .verify import verify_report
 
 log = logging.getLogger("vigileye.analysis")
 
@@ -51,6 +71,24 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "max_entities": 100,
     "reduce_entities": 40,
     "template_dir": None,
+    # computed evidence signals (analysis/signals.py, temporal.py, coordination.py): deterministic, no LLM
+    "signals": True,
+    "collapse_near_dups": True,    # the map phase sees one representative per copypasta cluster
+    "near_dup_threshold": 0.8,
+    "near_dup_min_size": 3,
+    "bursts": {"z_threshold": 3.5, "min_events": 5},          # temporal.detect_bursts kwargs (False disables)
+    "coordination": {"window_s": 60, "min_weight": 2, "n_iter": 200, "public_accounts": []},  # (False disables)
+    # claim-level citation verification (analysis/verify.py)
+    "verify": True,
+    "verify_llm": True,            # lexical pre-filter + verifier-role LLM with a verbatim-quote guard
+    "verify_max_pairs": 60,
+    # tradecraft critic (analysis/critic.py): rule-based by default, LLM red-team with critic_llm
+    "critique": True,
+    "critic_llm": False,
+    "stale_days": 30,
+    # authoritative vulnerability grounding (intel/): CISA KEV + FIRST EPSS; network unless intel.offline
+    "ground_cves": False,
+    "warninglists_dir": None,      # optional MISP misp-warninglists clone
 }
 
 _REF_IN_TEXT = re.compile(r"\[([a-z0-9_.-]+:[^\]\s|,]+)\]", re.I)
@@ -74,6 +112,9 @@ class AnalysisEngine:
                 section = config.get("analysis") or {}
         self.settings: dict[str, Any] = {**DEFAULT_SETTINGS, **{k: v for k, v in section.items() if v is not None}}
         self.env = template_env(self.settings.get("template_dir"))
+        self._warninglists = list(BUILTIN_LISTS)
+        if self.settings.get("warninglists_dir"):
+            self._warninglists += load_misp_warninglists(self.settings["warninglists_dir"])
 
     # ------------------------------------------------------------------ helpers
     def _render(self, name: str, **ctx: Any) -> str:
@@ -201,7 +242,9 @@ class AnalysisEngine:
 
     # --------------------------------------------------------------------- MAP
     def _map_chunk(self, idx: int, total: int, chunk: list[Document], lens: Lens, query: str, budget: int,
-                   indicators: list[dict], want_entities: bool, known: set[str], by_id: dict[str, str]) -> dict:
+                   indicators: list[dict], want_entities: bool, known: set[str], by_id: dict[str, str],
+                   computed_signals: list[dict] | None = None, reference_facts: str = "",
+                   citation_check: bool = False) -> dict:
         refs = {doc_ref(d) for d in chunk}
         times = [d.created_at for d in chunk if d.created_at]
         time_range = f"{min(times):%Y-%m-%d} to {max(times):%Y-%m-%d}" if times else ""
@@ -218,6 +261,9 @@ class AnalysisEngine:
                 documents=render_chunk(chunk, budget),
                 entity_types=lens.entity_types,
                 max_findings=self.settings["max_findings_per_chunk"],
+                computed_signals=render_signals_block(signals_for_refs(computed_signals or [], refs)),
+                reference_facts=reference_facts,
+                citation_check=citation_check,
             )
             payload = self.router.chat_json(messages, role="analyst")
             if isinstance(payload, list):
@@ -251,7 +297,8 @@ class AnalysisEngine:
 
     # ------------------------------------------------------------------ REDUCE
     def _reduce(self, lens: Lens, query: str, chunk_results: list[dict], entities: list[Entity],
-                ioc_summary: dict, stats: dict, grades: dict) -> dict:
+                ioc_summary: dict, stats: dict, grades: dict, computed_signals: list[dict] | None = None,
+                reference_facts: str = "", citation_check: bool = False) -> dict:
         ctx_window = int(self.router.context_window("synthesizer"))
         limit = max(2000, int(ctx_window * 0.7))
         max_f, max_chars = int(self.settings["max_findings_per_chunk"]), 1200
@@ -272,6 +319,9 @@ class AnalysisEngine:
                 lens, query, "final synthesis", "reduce.j2",
                 chunk_summaries=summaries, entities=entities[:n_ent], indicators=ioc_summary if ioc_summary.get("counts") else None,
                 stats=stats, source_grades=grades,
+                computed_signals=render_signals_block(computed_signals or []),
+                reference_facts=reference_facts,
+                citation_check=citation_check,
             )
             if sum(count_tokens(m["content"]) for m in messages) <= limit:
                 break
@@ -285,8 +335,10 @@ class AnalysisEngine:
 
     # --------------------------------------------------------------------- ACH
     def _ach(self, lens: Lens, query: str, judgments: list[Finding], chunk_results: list[dict],
-             known: set[str], by_id: dict[str, str]) -> tuple[list[dict], dict]:
-        evidence: list[str] = []
+             known: set[str], by_id: dict[str, str],
+             computed_signals: list[dict] | None = None) -> tuple[list[dict], dict]:
+        # computed signals go first so the 40-item cap can never drop them
+        evidence: list[str] = [f"{x['id']}: {x['summary']}" for x in (computed_signals or [])[:10]]
         for c in chunk_results:
             for f in c["findings"]:
                 evidence.append(f"{f.title}: {f.summary[:300]} ({', '.join(f.evidence[:4])})")
@@ -350,6 +402,9 @@ class AnalysisEngine:
         extract_entities: bool | None = None,
         ach: bool | None = None,
         max_chunks: int | None = None,
+        verify: bool | None = None,
+        critic: bool | None = None,
+        ground_cves: bool | None = None,
         progress: Callable[[str], None] | None = None,
     ) -> Report:
         t0 = time.monotonic()
@@ -358,6 +413,9 @@ class AnalysisEngine:
         use_vision = bool(s["use_vision"] if use_vision is None else use_vision)
         want_entities = bool(s["extract_entities"] if extract_entities is None else extract_entities)
         want_ach = bool(s["ach"] if ach is None else ach)
+        want_verify = bool(s["verify"] if verify is None else verify)
+        want_critic_llm = bool(s["critic_llm"] if critic is None else critic)
+        want_grounding = bool(s["ground_cves"] if ground_cves is None else ground_cves)
         max_chunks = int(s["max_chunks"] or 0) if max_chunks is None else int(max_chunks)
         errors: list[str] = []
         gaps: list[str] = []
@@ -384,6 +442,18 @@ class AnalysisEngine:
                 meta={"errors": [], "engine_version": __version__, "lens_title": lens_obj.title},
             )
 
+        # 1b. computed evidence signals (deterministic, no LLM) ---------------------------
+        sig: dict[str, Any] = {"signals": [], "clusters": [], "errors": [], "detectors": {}}
+        if s.get("signals", True):
+            try:
+                sig = compute_signals(unique, settings=s, case=case)
+            except Exception as e:  # noqa: BLE001 - compute_signals already isolates detectors
+                errors.append(f"signals: {type(e).__name__}: {e}")
+        errors += sig["errors"]
+        run_signals: list[dict] = sig["signals"]
+        if run_signals:
+            self._emit(progress, f"computed {len(run_signals)} evidence signal(s): {sig['detectors']}")
+
         # 2. vision -------------------------------------------------------------
         images_described = 0
         if use_vision:
@@ -400,8 +470,21 @@ class AnalysisEngine:
 
         # 3. indicators (regex, no LLM) ----------------------------------------
         indicators = extract_indicators(unique)
-        ioc_summary = summarize_indicators(indicators)
         self._emit(progress, f"extracted {len(indicators)} indicators")
+        try:
+            annotate_indicators(indicators, self._warninglists)  # benign-infrastructure warninglists (no drops)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"warninglists: {type(e).__name__}: {e}")
+        grounding: dict | None = None
+        if want_grounding and any(r.get("type") == "cve" for r in indicators):
+            self._emit(progress, "grounding CVEs in CISA KEV / FIRST EPSS")
+            try:
+                grounding = _ground_cves(indicators, config=self.config)
+                errors += [f"refdata: {e}" for e in grounding.get("errors") or []]
+            except Exception as e:  # noqa: BLE001 - grounding is best-effort
+                errors.append(f"refdata: {type(e).__name__}: {e}")
+        reference_facts = reference_facts_block(grounding) if grounding else ""
+        ioc_summary = summarize_indicators(indicators)
 
         # 4. chunk ----------------------------------------------------------------
         try:
@@ -409,7 +492,17 @@ class AnalysisEngine:
         except Exception:  # noqa: BLE001
             ctx = 32000
         budget = max(512, min(int(s["chunk_tokens"]), int(ctx * 0.6)))
-        chunks, dropped = self._select_and_chunk(unique, budget, max_chunks)
+        to_chunk, n_collapsed = unique, 0
+        if s.get("collapse_near_dups", True) and sig["clusters"]:
+            try:
+                to_chunk, n_collapsed = collapse_near_duplicates(unique, sig["clusters"],
+                                                                 min_size=int(s["near_dup_min_size"]))
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"signals: collapse failed: {type(e).__name__}: {e}")
+                to_chunk, n_collapsed = unique, 0
+        if n_collapsed:
+            self._emit(progress, f"collapsed {n_collapsed} near-duplicate copies into their cluster representatives")
+        chunks, dropped = self._select_and_chunk(to_chunk, budget, max_chunks)
         analysed = [d for c in chunks for d in c]
         if dropped:
             msg = (f"{len(dropped)} lower-priority documents were not analysed (max_chunks={max_chunks}); "
@@ -422,6 +515,9 @@ class AnalysisEngine:
         for d in unique:
             by_id.setdefault(d.id, doc_ref(d))
             by_id.setdefault(d.ref if hasattr(d, "ref") else doc_ref(d), doc_ref(d))
+        known |= {x["id"] for x in run_signals}
+        if grounding:
+            known |= {src["id"] for src in grounding.get("sources") or []}  # ref:cisa-kev / ref:first-epss
 
         # 5. MAP (parallel) ---------------------------------------------------------
         total = len(chunks)
@@ -430,7 +526,9 @@ class AnalysisEngine:
 
         def job(i_chunk: tuple[int, list[Document]]) -> dict:
             i, chunk = i_chunk
-            return self._map_chunk(i, total, chunk, lens_obj, query, budget, indicators, want_entities, known, by_id)
+            return self._map_chunk(i, total, chunk, lens_obj, query, budget, indicators, want_entities, known, by_id,
+                                   computed_signals=run_signals, reference_facts=reference_facts,
+                                   citation_check=want_verify)
 
         chunk_results: list[dict] = []
         with ThreadPoolExecutor(max_workers=max(1, min(int(s["max_concurrency"]), total))) as pool:
@@ -487,19 +585,29 @@ class AnalysisEngine:
             "indicators": ioc_summary.get("counts", {}),
             "entities": len(entities),
             "source_grades": grade_counts,
+            "collapsed_docs": n_collapsed,
+            "signals": sig["detectors"],
         }
+        profile: dict | None = None
+        try:
+            profile = temporal_profile(unique)
+            stats["volume_profile"] = describe_profile(profile)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"temporal_profile: {type(e).__name__}: {e}")
 
         # 8. REDUCE ---------------------------------------------------------------------
         all_findings = [f for c in chunk_results for f in c["findings"]]
         reduce_payload: dict = {}
-        prompt_stats = {k: stats[k] for k in ("unique_documents", "analyzed_documents", "dropped_docs", "chunks",
-                                              "failed_chunks", "time_range", "platforms", "top_sources",
-                                              "distinct_authors", "images_described")}
+        prompt_stats = {k: stats[k] for k in ("unique_documents", "analyzed_documents", "dropped_docs",
+                                              "collapsed_docs", "chunks", "failed_chunks", "time_range",
+                                              "platforms", "top_sources", "distinct_authors",
+                                              "images_described", "volume_profile") if k in stats}
         if all_findings or any(c["summary"] for c in chunk_results):
             self._emit(progress, "reduce: synthesising final assessment")
             try:
                 reduce_payload = self._reduce(lens_obj, query, chunk_results, entities, ioc_summary,
-                                              prompt_stats, grade_counts)
+                                              prompt_stats, grade_counts, computed_signals=run_signals,
+                                              reference_facts=reference_facts, citation_check=want_verify)
             except Exception as e:  # noqa: BLE001
                 log.warning("reduce failed: %s", e)
                 errors.append(f"reduce: {type(e).__name__}: {e}")
@@ -542,7 +650,8 @@ class AnalysisEngine:
         if want_ach:
             self._emit(progress, "ACH: evaluating competing hypotheses")
             try:
-                hypotheses, ach_meta = self._ach(lens_obj, query, key_judgments, chunk_results, known, by_id)
+                hypotheses, ach_meta = self._ach(lens_obj, query, key_judgments, chunk_results, known, by_id,
+                                                 computed_signals=run_signals)
             except Exception as e:  # noqa: BLE001
                 log.warning("ACH failed: %s", e)
                 errors.append(f"ach: {type(e).__name__}: {e}")
@@ -595,9 +704,23 @@ class AnalysisEngine:
         }
         if ach_meta:
             meta["ach"] = ach_meta
+        meta["computed_signals"] = run_signals
+        meta["near_dup_clusters"] = sig["clusters"][:200]
+        if run_signals:
+            meta.setdefault("extra_sections", []).append(
+                {"id": "evidence_signals", "title": "Evidence Signals", "markdown": signals_markdown(run_signals)})
+        if profile is not None:
+            meta["temporal_profile"] = profile
+        if lens_obj.name in ("influence", "narrative", "community") and s.get("coordination") is not False:
+            try:
+                from .coordination import coordination_graph
 
-        self._emit(progress, f"done in {stats['elapsed_s']}s ({len(key_judgments)} key judgments, {len(errors)} error(s))")
-        return Report(
+                meta["coordination_graph"] = coordination_graph(
+                    unique, clusters=sig["clusters"], case=case, **dict(s.get("coordination") or {}))
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"coordination_graph: {type(e).__name__}: {e}")
+
+        report = Report(
             case=case,
             lens=lens_obj.name,
             query=query,
@@ -613,6 +736,42 @@ class AnalysisEngine:
             stats=stats,
             meta=meta,
         )
+
+        # 11. post-synthesis checks (each mutates the report in place and degrades gracefully) ------------------
+        if want_verify:  # WS1: does each cited source actually support the judgment?
+            self._emit(progress, "verifying key-judgment citations against their sources")
+            try:
+                verify_report(report, unique, router=self.router, use_llm=bool(s["verify_llm"]),
+                              max_pairs=int(s["verify_max_pairs"]), max_workers=int(s["max_concurrency"]))
+            except Exception as e:  # noqa: BLE001
+                log.warning("verify failed: %s", e)
+                report.meta["errors"].append(f"verify: {type(e).__name__}: {e}")
+        if grounding:  # WS5: exploitation claims vs KEV/EPSS, reference sources, Reference facts section
+            try:
+                apply_grounding(report, grounding, cited=cited)
+            except Exception as e:  # noqa: BLE001
+                log.warning("reference grounding failed: %s", e)
+                report.meta["errors"].append(f"refdata: {type(e).__name__}: {e}")
+        if s["critique"]:  # WS4: tradecraft lint (+ optional LLM red team); revisions only ever lower confidence
+            self._emit(progress, "tradecraft critic: reviewing the assessment")
+            try:
+                review_report(report, unique, router=self.router, use_llm=want_critic_llm,
+                              stale_days=s["stale_days"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("critic failed: %s", e)
+                report.meta["errors"].append(f"critic: {type(e).__name__}: {e}")
+        report.meta["degraded"] = bool(report.meta.get("errors"))
+        report.meta["settings"].update({"signals": bool(s.get("signals", True)), "verify": want_verify,
+                                        "critique": bool(s["critique"]), "critic_llm": want_critic_llm,
+                                        "ground_cves": want_grounding})
+        try:
+            report.stats["llm_usage"] = self.router.usage_summary()  # now includes verifier/critic calls
+        except Exception:  # noqa: BLE001
+            pass
+        report.stats["elapsed_s"] = round(time.monotonic() - t0, 3)
+        self._emit(progress, f"done in {report.stats['elapsed_s']}s ({len(report.key_judgments)} key judgments, "
+                             f"{len(report.meta['errors'])} error(s))")
+        return report
 
 
 def analyze(docs: Iterable[Document], config: Any = None, router: Any = None, **kwargs: Any) -> Report:

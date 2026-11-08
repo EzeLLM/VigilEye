@@ -15,6 +15,7 @@ dependencies = ["openai>=1.40", "httpx>=0.27", "PyYAML>=6", "Jinja2>=3.1"]
 reddit = ["praw>=7.7"]
 tokens = ["tiktoken>=0.7"]
 dev = ["pytest>=8"]
+stix = ["stix2>=3.0.1"]            # test oracle only (tests/test_export.py); the exporter itself is stdlib
 
 [project.scripts]
 vigileye = "vigileye.cli:main"

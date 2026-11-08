@@ -34,7 +34,7 @@ DEFAULTS: dict[str, Any] = {
         "ach": False,
         "max_concurrency": 4,
     },
-    "output": {"dir": "export", "formats": ["md", "json", "html"]},
+    "output": {"dir": "export", "formats": ["md", "json", "html"], "tlp": "clear"},
     "store": {"path": ".vigileye/cases.db"},
 }
 

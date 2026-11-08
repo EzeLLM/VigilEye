@@ -7,8 +7,46 @@ import json
 import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 from .config import Config
+
+
+_TLP = ("clear", "green", "amber", "red")
+
+
+def _opt_bool(v):
+    """JSON body flag -> True/False/None (None keeps the configured default)."""
+    if v is None or isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        low = v.strip().lower()
+        if low in ("1", "true", "yes", "on"):
+            return True
+        if low in ("0", "false", "no", "off"):
+            return False
+        raise ValueError(f"expected a boolean, got {v!r}")
+    return bool(v)
+
+
+def _formats(v):
+    if v is None:
+        return None
+    from .report import FORMATS
+
+    items = v.split(",") if isinstance(v, str) else list(v)
+    out = [str(f).strip().lower() for f in items if str(f).strip()]
+    bad = [f for f in out if f not in FORMATS]
+    if bad:
+        raise ValueError(f"unknown report format(s) {bad}; choose from {list(FORMATS)}")
+    return out or None
+
+
+def _tlp(v, app):
+    t = str(v or app.config.get("output.tlp", "clear") or "clear").strip().lower().removeprefix("tlp:")
+    if t not in _TLP:
+        raise ValueError(f"unknown TLP level {t!r}; expected one of {list(_TLP)}")
+    return t
 
 
 def make_handler(app):
@@ -40,25 +78,40 @@ def make_handler(app):
             return json.loads(self.rfile.read(n) or b"{}") if n else {}
 
         def do_GET(self):
-            if self.path == "/health":
+            url = urlsplit(self.path)
+            path, qs = url.path, parse_qs(url.query)
+            if path == "/health":
                 return self._send(200, {"ok": True})
             if not self._authed():
                 return self._send(401, {"error": "unauthorized"})
             try:
-                if self.path == "/v1/lenses":
+                if path == "/v1/lenses":
                     from .analysis import list_lenses
                     return self._send(200, [{"name": l.name, "title": l.title, "description": l.description} for l in list_lenses()])
-                if self.path == "/v1/collectors":
+                if path == "/v1/collectors":
                     from .collectors import list_collectors
                     return self._send(200, list_collectors())
-                if self.path == "/v1/providers":
+                if path == "/v1/providers":
                     return self._send(200, app.router.describe())
-                if self.path == "/v1/cases":
+                if path == "/v1/cases":
                     return self._send(200, app.store.list_cases())
-                m = re.fullmatch(r"/v1/cases/([^/]+)/reports", self.path)
+                m = re.fullmatch(r"/v1/cases/([^/]+)/reports", path)
                 if m:
                     return self._send(200, app.store.list_reports(m.group(1)))
-                m = re.fullmatch(r"/v1/reports/(\d+)", self.path)
+                m = re.fullmatch(r"/v1/reports/(\d+)/(stix|navigator)", path)
+                if m:  # STIX 2.1 bundle (?tlp=clear|green|amber|red) or ATT&CK Navigator layer
+                    from .export import report_to_navigator_layer, report_to_stix
+                    rep = app.store.get_report(int(m.group(1)))
+                    if rep is None:
+                        return self._send(404, {"error": "not found"})
+                    if m.group(2) == "stix":
+                        try:
+                            tlp = _tlp((qs.get("tlp") or [None])[0], app)
+                        except ValueError as e:
+                            return self._send(400, {"error": str(e)})
+                        return self._send(200, report_to_stix(rep, tlp=tlp))
+                    return self._send(200, report_to_navigator_layer(rep))
+                m = re.fullmatch(r"/v1/reports/(\d+)", path)
                 if m:
                     rep = app.store.get_report(int(m.group(1)))
                     return self._send(200, rep.to_dict()) if rep else self._send(404, {"error": "not found"})
@@ -71,6 +124,16 @@ def make_handler(app):
                 return self._send(401, {"error": "unauthorized"})
             try:
                 body = self._body()
+                opts: dict = {}
+                if self.path in ("/v1/analyze", "/v1/run"):  # validate options before collecting or calling a model
+                    try:
+                        opts = {"vision": _opt_bool(body.get("vision")), "ach": _opt_bool(body.get("ach")),
+                                "verify": _opt_bool(body.get("verify")), "critic": _opt_bool(body.get("critic")),
+                                "ground_cves": _opt_bool(body.get("ground_cves")),
+                                "formats": _formats(body.get("formats")),
+                                "tlp": _tlp(body.get("tlp"), app) if body.get("tlp") else None}
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
                 if self.path in ("/v1/collect", "/v1/run"):
                     targets = body.get("targets") or []
                     if not targets:
@@ -82,7 +145,7 @@ def make_handler(app):
                     body["case"] = case
                 if self.path in ("/v1/analyze", "/v1/run"):
                     rid, report, paths = app.analyze(body["case"], lens=body.get("lens"), query=body.get("query", ""),
-                                                     vision=body.get("vision"), ach=body.get("ach"))
+                                                     **opts)
                     return self._send(200, {"report_id": rid, "files": [str(p) for p in paths], "report": report.to_dict()})
                 return self._send(404, {"error": "not found"})
             except KeyError as e:
