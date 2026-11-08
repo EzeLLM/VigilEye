@@ -22,6 +22,7 @@ marking that the analysis is machine-assisted. Pure stdlib; ``stix2`` is only a 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
 import json
 import re
@@ -203,15 +204,20 @@ def _slug(s: Any) -> str:
 
 
 class _Pseudonymizer:
-    """Replaces author strings from ``report.sources`` with ``author-<hash>`` (salted by case)."""
+    """Replaces author strings from ``report.sources`` with ``author-<hmac>`` (keyed per case)."""
 
     def __init__(self, report: Report):
+        from ..analysis.coordination import case_key
+
+        # HMAC under the secret-keyed per-case key (VIGILEYE_PSEUDONYM_KEY): an unkeyed hash of the
+        # case name, which the bundle itself exports, could be reversed by hashing candidate handles.
+        key = case_key(str(report.case or ""))
         mapping: dict[str, str] = {}
         for s in report.sources or []:
             author = str((s or {}).get("author") or "").strip() if isinstance(s, dict) else ""
             if not author:
                 continue
-            pseudo = "author-" + hashlib.sha256(f"{report.case}\x00{author.casefold()}".encode()).hexdigest()[:10]
+            pseudo = "author-" + hmac.new(key, author.casefold().encode("utf-8"), hashlib.sha256).hexdigest()[:10]
             bare = author.lstrip("@")
             for variant in (author, bare, bare.split("@", 1)[0]):
                 v = variant.strip().casefold()

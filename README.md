@@ -59,7 +59,8 @@ roles:
   synthesizer: [{provider: openai, model: gpt-4o, context_window: 128000}]
 ```
 
-- **Roles.** `analyst` reads chunks in parallel, `extractor` does cheap structured extraction, `vision` describes images and `synthesizer` writes the final product. Two optional roles check the product: `verifier` (citation grounding; falls back to `extractor`, then `analyst`) and `critic` (red-team review with `--critic`; pick a different model family from the synthesizer). A role you leave out falls back to `analyst`.
+- **Roles.** `analyst` reads chunks in parallel, `extractor` does cheap structured extraction, `vision` describes images and `synthesizer` writes the final product. Two optional roles check the product: `verifier` (citation grounding; falls back to `extractor`, then `analyst`) and `critic` (red-team review with `--critic`; pick a different model family from the synthesizer). `planner` proposes collection targets for `vigileye investigate`. A role you leave out falls back to `analyst`.
+- **Embeddings.** The optional `embedder` role is served through `/v1/embeddings` (OpenAI, vLLM `--task embed`, llama.cpp `--embeddings`, Ollama). It never falls back to a chat model; without it, retrieval is lexical only.
 - **Fallback chains.** If an endpoint errors or times out, the next entry in the chain is tried automatically.
 - **Compatibility shims.**
   - If a server rejects `response_format`, the request is retried without JSON mode.
@@ -181,6 +182,54 @@ Independently of grounding, every indicator is annotated against MISP-format war
 
 `pip install -e ".[stix]"` installs `stix2`, which the test suite uses to check bundles.
 
+## Evidence and chain of custody
+
+VigilEye hashes every item when it is collected and logs every handling step, following the Berkeley Protocol on Digital Open Source Investigations.
+
+- **Stamps.** At collection, each document gets `meta.evidence`: the SHA-256 of its evidentiary content (`platform, id, source, url, title, text, created_at, media` as canonical JSON, `vigileye-cjson/1`), the SHA-256 of the platform's raw record, `collected_at`, the collector, the target spec and the tool version. A stamp is never overwritten. Re-collecting an unchanged item keeps its first stamp.
+- **Custody log.** `collect`, `analyze`, `export`, `amend` and `manifest` events go into an append-only, hash-chained `custody` table in the case database. Each entry hashes the previous one. Database triggers reject `UPDATE` and `DELETE`, and a unique index stops two writers from forking a chain. Each `collect` entry binds the hash of every item it collected. Each `analyze` entry binds the SHA-256 of the stored report.
+- **Methodology.** Every report records the chain head at analysis time and how many analysed documents were stamped.
+- **Verification.** `vigileye evidence verify --case NAME [--anchor HEAD]` recomputes the chain and re-hashes every stored document and report. It exits 1 and lists the fingerprints of documents whose content or raw record no longer matches its stamp (`mismatched`, `raw_mismatched`), of documents edited and then re-stamped (`unlogged`), and of reports changed without an `amend` entry. Documents collected before stamping are listed as `unstamped` but do not fail the check.
+- **Manifest.** `vigileye evidence manifest --case NAME --out case.json` writes an inventory (ref, fingerprint, URL, collected_at, hashes and status per document, plus the chain head) and a `case.json.sha256` sidecar that `sha256sum -c` accepts. Account handles and profile-like URL segments are masked, and authors are left out.
+- `vigileye evidence log --case NAME` prints the custody entries.
+
+The chain is tamper-evident, not tamper-proof. Anyone who can write the database can rebuild every hash, and deleting the newest entries leaves a valid shorter chain. Keep the head somewhere else (hand over the manifest and its sidecar) and pass it back as `--anchor` to detect truncation.
+
+Settings: `evidence.custody` (default `true`) and `evidence.actor` (recorded in every entry; default `vigileye`, or `$VIGILEYE_ACTOR`).
+
+## Ask the case
+
+`vigileye ask --case NAME "question"` answers one question from a case's documents, with a citation on every sentence.
+
+- **Retrieval.** Hybrid search over the case: SQLite FTS5 (or a built-in BM25) for lexical matches, plus dense vectors from the `embedder` role when it is configured. The two rankings are fused with reciprocal rank fusion. The index lives next to the store (`cases.index.db`) and is brought up to date with the case on every `ask`, so only new or changed documents are re-indexed and re-embedded. Vectors from different embedding models are never mixed.
+- **Answering.** The top `--k` documents (default 12) go to the `synthesizer` role as numbered evidence blocks, fenced with a per-call nonce and marked as untrusted data. The prompt requires a `[platform:id]` citation on every factual sentence, or an explicit `INSUFFICIENT EVIDENCE:` reply.
+- **Checking.** Each (sentence, citation) pair is verified like report citations: lexically and, with `analysis.verify_llm`, by the `verifier` role. Unsupported citations and citations of documents that were not retrieved are removed. An answer left with no verified citation is reported as unanswered. Confidence is capped by corroboration: one source, or partial support only, means at most moderate.
+- **Privacy.** Authors are never indexed, embedded, prompted or returned; the answer metadata counts them only.
+- Flags: `--platform P`, `--no-verify`, `--json`. With the offline mock provider, the answer quotes the top documents verbatim.
+
+When `--query` is set and `max_chunks` forces a cut, `analyze` uses the same ranking to keep the documents most relevant to the query (0.6) before engagement and recency (0.4). Turn this off with `analysis.relevance_selection: false`.
+
+## Investigate
+
+`vigileye investigate "question" --seed SPEC [--seed SPEC …] --case NAME` runs an iterative collection loop: collect the seeds, analyse, let the `planner` role propose new targets for the gaps, check them against the target policy, collect, and repeat.
+
+- **Budgets.** `--rounds` (planner rounds after the seed round, default 3), `--max-new` (targets per round, default 4), `--limit` (documents per target, default 50) and `--max-docs` (case budget, default 2000). The loop also stops when the planner says it is done, no proposal survives, or a round adds no new documents.
+- **Approval.** Without `--yes`, each round's policy-approved targets are listed and you choose which to collect. When stdin is not a terminal and `--yes` is not given, every planner target is declined.
+- **Planner input.** The planner sees the BLUF, gaps, judgments and indicator counts between nonce markers, as untrusted data. It never sees person or account entity names or indicator values (URLs and indicator hosts are masked in the BLUF, gaps and judgments too), and it cannot target any host that appears as an IP, domain or URL indicator, defanged or not.
+- **Provenance.** Interim analyses are lighter (no ACH, LLM critic or vision; JSON only, in `<out>/interim/round-N/`). The final report gets a "Collection plan & provenance" section listing every target, who proposed it and why, and what happened to it. The report is updated in place and the change is logged as an `amend` custody entry.
+
+### Target policy
+
+`vigileye.policy.check_target` decides whether a target may be collected. It has three modes:
+
+| Mode | Used by | Allows |
+|---|---|---|
+| `auto` | planner proposals | topic-level targets only: `reddit:r/…`, `reddit:search:…`, `hn:search:…`, `hn:item:N`, `rss:https://…`, `web:https://…`, `mastodon:#tag@instance`, `mastodon:search:…@instance`, `bluesky:search:…`. Refused: accounts (`reddit:u/`, `hn:user:`, `@handle`), searches scoped to an account (`from:`, `author:`, `@handle`), profile-page URLs, `file:` |
+| `manual` | CLI seeds | any collector form; `file:` is allowed |
+| `api` | HTTP API | any collector form except `file:` |
+
+In every mode, a URL-bearing target must be a public http(s) URL: no other scheme, no credentials, and no host that is or resolves to a loopback, private, link-local, multicast, reserved, CGNAT or cloud-metadata address (IPv4, IPv6 and IPv4-mapped forms). Name resolution fails closed. `investigate` refuses account-level seeds, and refused account specs appear in reports only as per-case pseudonyms (`acct_…`). Planner targets always respect robots.txt.
+
 ## CLI
 
 ```
@@ -191,6 +240,10 @@ vigileye analyze --case NAME [--lens L] [--query Q] [--ach] [--vision] [--platfo
 vigileye run TARGET… [same flags]        # collect + analyze
 vigileye cases | reports --case NAME | show ID [--format md|json|html|stix|navigator] [--tlp T] | export --case NAME --out f.jsonl
 vigileye signals --case NAME [--json]    # computed evidence signals, no LLM
+vigileye ask --case NAME "question" [--k N] [--platform P] [--no-verify] [--json]
+vigileye investigate "question" --seed SPEC… --case NAME [--rounds N] [--max-new N] [--limit N] [--max-docs N]
+                     [--yes] [--opt k=v] [same analysis flags as analyze]
+vigileye evidence verify|manifest|log --case NAME [--out case.json] [--anchor HEAD]
 vigileye refdata update | refdata cve CVE-ID   # CISA KEV / FIRST EPSS cache
 vigileye lenses | collectors | providers [--test]
 vigileye serve [--host 127.0.0.1] [--port 8765]
@@ -214,11 +267,24 @@ Start it with `vigileye serve`. It binds to localhost by default. Set `VIGILEYE_
 |---|---|---|
 | GET | `/health`, `/v1/lenses`, `/v1/collectors`, `/v1/providers`, `/v1/cases`, `/v1/cases/{case}/reports`, `/v1/reports/{id}` | |
 | GET | `/v1/reports/{id}/stix[?tlp=amber]`, `/v1/reports/{id}/navigator` | |
+| GET | `/v1/cases/{case}/evidence` (manifest), `/v1/cases/{case}/evidence/verify[?anchor=HEAD]` | |
 | POST | `/v1/collect` | `{targets, case, limit, opts}` |
 | POST | `/v1/analyze` | `{case, lens, query, ach, vision, verify, critic, ground_cves, formats, tlp}` |
 | POST | `/v1/run` | `{targets, case, limit, lens, query, …same options as /v1/analyze}` |
+| POST | `/v1/ask` | `{case, question, k, platform, verify}` |
+| POST | `/v1/investigate` | `{question, seeds, case, rounds (≤5), max_new (≤8), limit (≤200), max_docs (≤5000), lens, opts, …analysis options}`; `422` if it stops before any analysis |
 
-Omitted options keep the configured defaults. An unknown format or TLP level returns `400`, before anything is collected.
+Omitted options keep the configured defaults. An unknown format, TLP level or lens returns `400`, before anything is collected. A target or seed the policy refuses returns `400` with `{error, rejected: [{spec, reason}]}`, and nothing is collected. Planner targets inside `/v1/investigate` are collected without asking.
+
+## Security model
+
+- **Localhost bind.** `vigileye serve` binds to `127.0.0.1` by default. Binding anywhere else (the Docker image uses `0.0.0.0`) without a token prints a warning.
+- **Bearer token.** Set `VIGILEYE_API_TOKEN` to require `Authorization: Bearer …` on everything except `/health`. The token is compared in constant time. Anyone with the token can collect, analyse and read every case in the store.
+- **Browser requests.** POST bodies must be `Content-Type: application/json`. Without a token, a request whose `Host` is not `localhost`, an IP literal or a name in `VIGILEYE_API_ALLOWED_HOSTS`, or that carries a foreign `Origin`, is refused with 403. This blocks CSRF from web pages you open and DNS-rebinding reads of your cases.
+- **The API cannot read local files.** `file:` targets and seeds are refused (target policy `mode="api"`), lenses are limited to the built-in names (a lens path would be a file read), and output paths are not accepted.
+- **SSRF guard.** Every collect, run and investigate target passes `check_target`, which refuses URLs on non-public hosts. At fetch time, every request and redirect hop of every collector, and every image the vision role fetches, is checked again. Image references from collected content are never read from the local disk; only documents you load with `file:` can point at local images. Set `collectors.web.allow_private: true` (web pages and images) or `collectors.http.allow_private: true` (every collector) for lab use; the API's target policy stays strict either way, and targets submitted through the API or proposed by the investigation planner keep the fetch-time checks on every redirect hop. Response bodies are streamed and capped (`max_response_bytes`, 32 MiB; web pages `max_page_bytes`, 10 MiB; robots.txt 512 KiB) with an overall `fetch_deadline` (120 s).
+- **Mastodon credentials.** A token in `collectors.mastodon.tokens.<instance>` is sent only to that instance. The global `access_token` / `MASTODON_TOKEN` is sent only to its home instance (`token_instance`, else the configured `instance`, else `MASTODON_INSTANCE`, else mastodon.social). Planner-proposed targets are fetched without credentials. The checks resolve names with the system resolver and fail closed. They do not stop DNS rebinding between the check and the connection.
+- **Untrusted content.** Collected text reaches models only inside nonce-fenced blocks marked as data, for analysis, `ask`, citation checks and the planner.
 
 There's also a Docker image: `docker build -t vigileye . && docker run -p 8765:8765 -e OPENAI_API_KEY vigileye`.
 
@@ -228,7 +294,8 @@ VigilEye is built for analyzing **public** information about topics, communities
 
 - Respect each platform's terms of service and rate limits. The web collector honors robots.txt.
 - Do not use it to doxx, stalk, harass or de-anonymize private individuals. It deliberately does not harvest personal emails or phone numbers.
-- Signals, coordination networks and STIX exports carry account counts or keyed pseudonyms, never author names. A coordination signal is a statistical anomaly, not proof of inauthenticity.
+- Signals, coordination networks, STIX exports, `ask` answers, investigation reports and evidence manifests carry account counts or keyed pseudonyms, never author names. A coordination signal is a statistical anomaly, not proof of inauthenticity.
+- `vigileye investigate` cannot be pointed at a person: account-level seeds, planner targets and profile pages are refused.
 - Every judgment is machine-generated. A human analyst must review it before anyone acts on it.
 
 ## Development
@@ -237,4 +304,4 @@ VigilEye is built for analyzing **public** information about topics, communities
 pip install -e ".[dev]" && pytest -q
 ```
 
-The test suite runs offline against the built-in `mock://` provider and a local fake OpenAI-compatible server.
+The test suite runs offline against the built-in `mock://` provider (chat and embeddings), a local fake OpenAI-compatible server and injected DNS resolvers.

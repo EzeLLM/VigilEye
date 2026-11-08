@@ -85,8 +85,25 @@ def wep_range(term: str) -> tuple[float, float] | None:
     return None
 
 
+#: The opposite end of the scale for a negated term ("almost certainly not" -> "almost no chance").
+_WEP_MIRROR: dict[str, str] = {
+    "almost no chance": "almost certain", "very unlikely": "very likely", "unlikely": "likely",
+    "roughly even chance": "roughly even chance",
+    "likely": "unlikely", "very likely": "very unlikely", "almost certain": "almost no chance",
+}
+_WEP_POSITIVE = ("likely", "very likely", "almost certain")
+_PREFIX_NEGATION = re.compile(r"\b(?:not|never|hardly|nor)\s+(?:\w+\s+)?$")
+_POSTFIX_NEGATION = re.compile(r"^\s*not\b")
+
+
 def normalize_wep(value: object) -> str | None:
-    """Map free text (or a number) onto a canonical WEP term; ``None`` if unknown."""
+    """Map free text (or a number) onto a canonical WEP term; ``None`` if unknown.
+
+    ``"1%"`` is a percentage (almost no chance), not the probability 1.0. Negation is honoured:
+    a trailing ``not`` mirrors the term ("almost certainly not" -> almost no chance, "likely
+    not" -> unlikely); a leading ``not`` / ``never`` caps it ("not likely", "not very likely" ->
+    unlikely; "not unlikely" -> roughly even chance); "less likely than not" -> unlikely.
+    """
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -94,17 +111,29 @@ def normalize_wep(value: object) -> str | None:
     s = str(value).strip().lower()
     if not s:
         return None
-    pct = re.fullmatch(r"(\d{1,3}(?:\.\d+)?)\s*%?", s)
+    pct = re.fullmatch(r"(\d{1,3}(?:\.\d+)?)\s*(%?)", s)
     if pct:
-        return wep_for_probability(float(pct.group(1)))  # >1 is treated as percent
+        num = float(pct.group(1))
+        return wep_for_probability(num / 100.0 if pct.group(2) else num)  # bare >1 is treated as percent
     s = re.sub(r"[^a-z ]+", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
+    if re.search(r"\bless (?:likely|probable) than not\b", s):
+        return "unlikely"
+    if re.search(r"\bmore (?:likely|probable) than not\b", s):
+        return "likely"
     if s in _WEP_SYNONYMS:
         return _WEP_SYNONYMS[s]
     # Longest synonym contained in the string wins ("very likely" beats "likely").
     for syn in sorted(_WEP_SYNONYMS, key=len, reverse=True):
-        if re.search(rf"\b{re.escape(syn)}\b", s):
-            return _WEP_SYNONYMS[syn]
+        m = re.search(rf"\b{re.escape(syn)}\b", s)
+        if not m:
+            continue
+        term = _WEP_SYNONYMS[syn]
+        if syn != "probably not" and _POSTFIX_NEGATION.match(s[m.end():]):
+            return _WEP_MIRROR[term]
+        if _PREFIX_NEGATION.search(s[: m.start()]):
+            return "unlikely" if term in _WEP_POSITIVE else "roughly even chance"
+        return term
     return None
 
 
@@ -129,8 +158,23 @@ CONFIDENCE_LEVELS: dict[str, str] = {
 }
 
 
+_CONF_NEGATED = re.compile(r"\b(?:not|no|non|without|lacks?|lacking)\s*-?\s*(?:very\s+|highly\s+|particularly\s+|"
+                           r"much\s+|fully\s+)?(?:confident|confidence|sure|certain)\b|\bunconfident\b|\bunsure\b")
+_CONF_WORDS = (  # (level, pattern), checked lowest first: a range or mixed phrase resolves to its lower bound
+    ("low", re.compile(r"\b(?:low|weak|limited|poor|minimal|scant)\b")),
+    ("moderate", re.compile(r"\b(?:moderate(?:ly)?|medium|mid|fair)\b")),
+    ("high", re.compile(r"\b(?:high(?:ly)?|strong(?:ly)?|confident)\b")),
+)
+
+
 def normalize_confidence(value: object) -> str:
-    """Normalize free-form confidence (text or number) to low|moderate|high."""
+    """Normalize free-form confidence (text or number) to low|moderate|high.
+
+    Ranges resolve to their lower bound ("moderate to high" -> moderate), uncertainty wording
+    is read as the inverse of confidence ("low (high uncertainty)" -> low), and negation lowers
+    it ("not confident" -> low). ``None`` / empty stays ``moderate`` (callers that read model
+    output pass their own default).
+    """
     if value is None:
         return "moderate"
     if isinstance(value, (int, float)):
@@ -145,12 +189,16 @@ def normalize_confidence(value: object) -> str:
         return normalize_confidence(float(s.rstrip("%")) / (100.0 if s.endswith("%") else 1.0))
     except ValueError:
         pass
-    if any(k in s for k in ("high", "strong", "confident")):
-        return "high"
-    if any(k in s for k in ("low", "weak", "limited", "poor", "minimal")):
+    if _CONF_NEGATED.search(s):
         return "low"
-    if any(k in s for k in ("moderate", "medium", "mid", "fair")):
-        return "moderate"
+    s = re.sub(r"[-_/]+", " ", s)
+    s = re.sub(r"\b(?:very|highly|high|great|significant|considerable|substantial)\s+uncertain(?:ty)?\b", " low ", s)
+    s = re.sub(r"\b(?:low|little|minimal|limited)\s+uncertainty\b", " high ", s)
+    s = re.sub(r"\b(?:moderate|medium)\s+uncertainty\b", " moderate ", s)
+    s = re.sub(r"\buncertain(?:ty)?\b", " low ", s)
+    for level, rx in _CONF_WORDS:
+        if rx.search(s):
+            return level
     return "moderate"
 
 
@@ -208,19 +256,64 @@ _PLATFORM_DEFAULT_GRADES: dict[str, str] = {
 }
 
 
-def default_source_grade(platform: str | None, source: str | None = None) -> str:
-    """Return a conservative Admiralty grade (e.g. ``"F6"``) for a platform.
+#: Publisher hosts of user-generated content, graded as their platform whatever the collector
+#: (``rss:https://www.reddit.com/r/x/.rss`` is still Reddit, not a curated feed).
+_UGC_HOSTS: dict[str, str] = {
+    "reddit.com": "reddit", "redd.it": "reddit", "twitter.com": "twitter", "x.com": "x", "t.me": "telegram",
+    "telegram.me": "telegram", "bsky.app": "bluesky", "youtube.com": "youtube", "youtu.be": "youtube",
+    "instagram.com": "instagram", "facebook.com": "facebook", "tiktok.com": "tiktok", "4chan.org": "4chan",
+    "4channel.org": "4chan", "pastebin.com": "pastebin", "news.ycombinator.com": "hackernews",
+    "hnrss.org": "hackernews", "medium.com": "forum", "substack.com": "forum", "tumblr.com": "forum",
+    "mastodon.social": "mastodon", "infosec.exchange": "mastodon", "threads.net": "forum", "github.com": "github",
+    "gist.github.com": "pastebin",
+}
+#: Government CERTs, agencies and vulnerability databases outside the .gov/.mil naming.
+_OFFICIAL_HOSTS = ("cert.europa.eu", "enisa.europa.eu", "europol.europa.eu", "bsi.bund.de", "jpcert.or.jp",
+                   "cert.org", "first.org", "mitre.org", "cve.org", "kb.cert.org", "ncsc.nl", "cert.pl",
+                   "cert.at", "cert.be", "govcert.ch", "ncsc.admin.ch", "cyber.gc.ca", "cert-in.org.in")
+_OFFICIAL_SUFFIX = re.compile(r"(?:^|\.)(?:gov|mil)(?:\.[a-z]{2})?$|(?:^|\.)(?:gouv|gob|go|govt)\.[a-z]{2}$")
 
-    Analysts should upgrade grades only on the basis of a track record or
-    corroboration; this function never assumes reliability for user-generated
-    content.
+
+def _publisher_host(url: str | None, source: str | None) -> str:
+    """Host of the publisher: the document URL's host, else ``source`` when it names a host."""
+    for cand in (url, source):
+        c = str(cand or "").strip().lower()
+        if not c:
+            continue
+        m = re.match(r"^(?:[a-z][a-z0-9+.-]*://)?([^/\s:?#]+\.[a-z]{2,})(?:[:/?#]|$)", c)
+        if m:
+            host = m.group(1).rstrip(".")
+            for pre in ("www.", "m.", "old.", "new.", "mobile."):
+                if host.startswith(pre):
+                    host = host[len(pre):]
+                    break
+            return host
+    return ""
+
+
+def _host_in(host: str, names: Iterable[str]) -> str | None:
+    return next((n for n in names if host == n or host.endswith("." + n)), None)
+
+
+def default_source_grade(platform: str | None, source: str | None = None, url: str | None = None) -> str:
+    """Return a conservative Admiralty grade (e.g. ``"F6"``) for a document's publisher.
+
+    The publisher host comes first (``url``, else a host-like ``source``): user-generated hosts get
+    their platform's grade whatever the collector, and government / CERT hosts (``.gov``, ``.mil``,
+    ``.gov.uk``, ``cert.europa.eu``, ...) get ``B2`` whether fetched by ``web:`` or ``rss:``. Then
+    the platform table applies. Analysts should upgrade grades only on the basis of a track record
+    or corroboration; this function never assumes reliability for user-generated content.
     """
     p = (platform or "").strip().lower()
+    host = _publisher_host(url, source)
+    if host:
+        ugc = _host_in(host, _UGC_HOSTS)
+        if ugc:
+            return _PLATFORM_DEFAULT_GRADES.get(_UGC_HOSTS[ugc], "F6")
+        if _OFFICIAL_SUFFIX.search(host) or _host_in(host, _OFFICIAL_HOSTS):
+            return "B2"
     if p in _PLATFORM_DEFAULT_GRADES:
         return _PLATFORM_DEFAULT_GRADES[p]
-    s = (source or "").lower()
-    if s.endswith(".gov") or ".gov/" in s or ".mil" in s:
-        return "B2"
     if any(k in p for k in ("rss", "news", "feed")):
         return "C3"
     return "F6"

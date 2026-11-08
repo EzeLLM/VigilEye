@@ -33,6 +33,7 @@ MEDIA_KEYS = ("media", "images", "image", "image_url", "attachments", "photos")
 TAG_KEYS = ("tags", "hashtags", "labels", "categories")
 
 _DOC_FIELDS = {"id", "platform", "source", "text"}
+_SEQUENCE_ID = re.compile(r"^-?\d{1,12}(?:\.0)?$")
 
 
 def _first(d: dict, keys: Iterable[str]) -> Any:
@@ -112,14 +113,18 @@ def record_to_document(rec: dict, origin: str, index: int = 0, default_platform:
     if isinstance(text, (list, dict)):
         text = json.dumps(text, ensure_ascii=False)
     rid = _first(rec, ID_KEYS)
-    if rid is None:
-        rid = hashlib.sha1(f"{origin}|{index}|{text}|{title}".encode("utf-8")).hexdigest()[:16]
     platform = _as_str(_first(rec, PLATFORM_KEYS)) or default_platform
     source = _as_str(_first(rec, SOURCE_KEYS)) or Path(origin).name
     if "subreddit" in {k.lower() for k in rec} and not source.startswith("r/"):
         source = f"r/{source}"
         if platform == default_platform:
             platform = "reddit"
+    if rid is None:
+        rid = hashlib.sha1(f"{origin}|{index}|{text}|{title}".encode("utf-8")).hexdigest()[:16]
+    elif _SEQUENCE_ID.match(str(rid).strip()):
+        # Row numbers and per-channel message ids (CSV ``id`` 1,2,..., Telegram/Discord exports) are
+        # only unique inside their source: namespace them so two files or channels never merge.
+        rid = f"{source}:{str(rid).strip()}"
     metrics = {}
     lower = {str(k).lower(): v for k, v in rec.items()}
     for k in METRIC_KEYS:
@@ -244,12 +249,36 @@ class FileCollector(Collector):
         split = bool(opts.get("split", self.config.get("split", False)))
         platform = opts.get("platform") or self.config.get("platform") or "file"
         n = 0
+        owners: dict[tuple[str, str], tuple[str, str]] = {}  # (platform, id) -> (origin, source)
         for f in self._files(path):
             for doc in self.load_file(f, split=split, platform=platform):
+                self._disambiguate(doc, owners, platform)
                 yield doc
                 n += 1
                 if n >= limit:
                     return
+
+    def _disambiguate(self, doc: Document, owners: dict, default_platform: str) -> None:
+        """Give a mapped file record whose id another file or source already used its own id.
+
+        Records with no platform identity carry ids from a file-local namespace; two such files
+        (``a.csv`` and ``b.csv`` both with ``id`` x1) would otherwise share a fingerprint, and the
+        later one would silently overwrite the earlier one in the case store.
+        """
+        origin = str((doc.meta or {}).get("origin") or "")
+        if doc.platform != default_platform or not origin:
+            return
+        owner = (origin, doc.source)
+        key = (doc.platform, doc.id)
+        prev = owners.setdefault(key, owner)
+        if prev == owner:
+            return
+        new_id = f"{doc.source}:{doc.id}"
+        if owners.get((doc.platform, new_id), owner) != owner:
+            new_id = f"{hashlib.sha1(origin.encode('utf-8')).hexdigest()[:8]}:{new_id}"
+        self.log.warning("record id %s in %s is already used by %s; stored as %s", doc.id, origin, prev[0], new_id)
+        doc.id = new_id
+        owners[(doc.platform, new_id)] = owner
 
     @staticmethod
     def _files(path: Path) -> Iterator[Path]:

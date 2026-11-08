@@ -28,6 +28,8 @@ log = logging.getLogger("vigileye.collectors")
 
 DEFAULT_USER_AGENT = "VigilEye/2.0 (+https://github.com/EzeLLM/VigilEye)"
 RETRY_STATUSES = {429, 500, 502, 503, 504, 520, 521, 522, 524}
+MAX_RESPONSE_BYTES = 32 << 20   # largest response body any collector buffers (collectors.<name>.max_response_bytes)
+FETCH_DEADLINE_S = 120.0        # overall time to read one response body (httpx timeouts are per read)
 
 REGISTRY: dict[str, type["Collector"]] = {}
 ALIASES: dict[str, str] = {}
@@ -319,6 +321,8 @@ class Collector(ABC):
         self.timeout: float = float(self.config.get("timeout", 20))
         self.max_retries: int = int(self.config.get("max_retries", 3))
         self.backoff: float = float(self.config.get("backoff", 1.5))
+        self.max_response_bytes: int = int(self.config.get("max_response_bytes", MAX_RESPONSE_BYTES))
+        self.fetch_deadline: float = float(self.config.get("fetch_deadline", FETCH_DEADLINE_S))
         self.min_interval: float = float(self.config.get("min_interval", self.default_min_interval()))
         self._last_request = 0.0
         self._lock = threading.Lock()
@@ -330,6 +334,9 @@ class Collector(ABC):
         return 1.0
 
     def _build_client(self) -> httpx.Client:
+        """The collector's own client. Unless :attr:`allow_private`, a request hook refuses every request
+        and redirect hop to a non-public host (:func:`vigileye.policy.guard_request_hook`). Clients
+        passed in as ``http=`` are used as given."""
         headers = {"User-Agent": self.user_agent, "Accept": "*/*"}
         headers.update(self.config.get("headers") or {})
         kwargs: dict[str, Any] = dict(
@@ -344,7 +351,16 @@ class Collector(ABC):
         verify = self.config.get("verify")
         if verify is not None:
             kwargs["verify"] = verify
+        if not self.allow_private:
+            from ..policy import guard_request_hook  # lazy: policy imports this module
+
+            kwargs["event_hooks"] = {"request": [guard_request_hook()]}  # every request and redirect hop
         return httpx.Client(**kwargs)
+
+    @property
+    def allow_private(self) -> bool:
+        """Lab opt-out of the SSRF guard: ``collectors.<name>.allow_private`` or ``collectors.http.allow_private``."""
+        return bool(self.config.get("allow_private", False))
 
     def close(self) -> None:
         if self._owns_http:
@@ -368,13 +384,41 @@ class Collector(ABC):
                 time.sleep(wait)
             self._last_request = time.monotonic()
 
-    def request(self, method: str, url: str, **kwargs) -> httpx.Response:
-        """HTTP request with throttling and retry/backoff on 429/5xx/transport errors."""
+    def send_capped(self, method: str, url: str, *, max_bytes: int | None = None, **kwargs) -> httpx.Response:
+        """One request whose body is streamed and refused past ``max_bytes`` (default
+        :attr:`max_response_bytes`) or :attr:`fetch_deadline` seconds, so a hostile server cannot
+        exhaust memory with a huge body or hang the collector by trickling bytes."""
+        send_kw = {k: kwargs.pop(k) for k in ("follow_redirects", "auth") if k in kwargs}
+        cap = int(max_bytes or self.max_response_bytes)
+        req = self.http.build_request(method, url, **kwargs)
+        deadline = time.monotonic() + self.fetch_deadline
+        resp = self.http.send(req, stream=True, **send_kw)
+        buf, size = [], 0
+        try:
+            for chunk in resp.iter_bytes():
+                size += len(chunk)
+                if size > cap:
+                    raise CollectorError(f"{method} {url}: response body larger than {cap} bytes; aborted")
+                if time.monotonic() > deadline:
+                    raise CollectorError(f"{method} {url}: response body not received within {self.fetch_deadline:.0f}s")
+                buf.append(chunk)
+        finally:
+            resp.close()
+        headers = [(k, v) for k, v in resp.headers.multi_items()
+                   if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+        out = httpx.Response(resp.status_code, headers=headers, content=b"".join(buf), request=resp.request,
+                             extensions=resp.extensions)
+        out.history = list(resp.history)
+        return out
+
+    def request(self, method: str, url: str, *, max_bytes: int | None = None, **kwargs) -> httpx.Response:
+        """HTTP request with throttling and retry/backoff on 429/5xx/transport errors (body capped,
+        see :meth:`send_capped`)."""
         attempt = 0
         while True:
             self.throttle()
             try:
-                resp = self.http.request(method, url, **kwargs)
+                resp = self.send_capped(method, url, max_bytes=max_bytes, **kwargs)
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 if attempt >= self.max_retries:
                     raise CollectorError(f"{method} {url} failed: {exc}") from exc
@@ -431,14 +475,24 @@ class Collector(ABC):
         return f"<{type(self).__name__} name={self.name!r}>"
 
 
-def collect(spec: str, limit: int = 100, config: dict | None = None, **opts) -> Iterator["Document"]:  # noqa: F821
+UNTRUSTED_ORIGINS = ("api", "auto")
+
+
+def collect(spec: str, limit: int = 100, config: dict | None = None, *, trust: str = "manual",
+            **opts) -> Iterator["Document"]:  # noqa: F821
     """Convenience: resolve ``spec`` and stream documents from the right collector.
 
     ``config`` may be the whole ``collectors`` section (keyed by collector
     name, with a shared ``http`` sub-section) or a flat per-collector dict.
+    ``trust`` is where the target came from (``manual`` CLI, ``api`` HTTP client, ``auto`` the
+    investigation planner). For ``api`` and ``auto`` targets the fetch-time SSRF guard stays on
+    whatever ``allow_private`` says, and collectors withhold credentials that are not scoped to the
+    exact host being fetched (see ``config["trust"]``).
     """
     name, target = resolve_target(spec)
     cfg = collector_config(config, name)
+    if trust in UNTRUSTED_ORIGINS:
+        cfg = {**cfg, "allow_private": False, "trust": trust}
     col = get_collector(name, cfg)
     try:
         yield from col.collect(target, limit=limit, **opts)

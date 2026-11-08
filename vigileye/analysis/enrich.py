@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Iterable
 
 from ..models import Document, Entity
-from .chunking import doc_ref, render_chunk
+from .chunking import doc_ref, fence_untrusted, render_chunk
 
 if TYPE_CHECKING:  # pragma: no cover
     from .lenses import Lens
@@ -78,7 +78,7 @@ def defang(value: str, kind: str | None = None) -> str:
 
 _URL_RE = re.compile(r"\b(?:https?|ftp)://[^\s<>\"'`\])}|]+", re.I)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")  # used only to MASK e-mails out of the text
-_IPV4_RE = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.]|\.\d)")
+_IPV4_RE = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?!\d|\.\d)")
 _IPV6_RE = re.compile(r"(?<![\w:.])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])", re.I)
 _DOMAIN_RE = re.compile(r"(?<![\w@.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24}))(?![\w-]|\.[a-z0-9])", re.I)
 _MD5_RE = re.compile(r"(?<![\w])[a-f0-9]{32}(?![\w])", re.I)
@@ -277,9 +277,9 @@ def extract_indicators(
         add(text, doc_id)
     else:
         for doc in text:
+            # The document's own permalink is provenance, not an indicator: scanning it would make
+            # every outlet's article URLs (and its domain) top the IOC list.
             parts = [doc.title or "", doc.text or ""]
-            if doc.url and doc.url not in (doc.text or ""):
-                parts.append(doc.url)
             parts += [m.url for m in doc.media if m.url]
             parts += [m.description for m in doc.media if m.description]
             add("\n".join(p for p in parts if p), doc_ref(doc))
@@ -314,6 +314,11 @@ def summarize_indicators(indicators: list[dict], top_per_type: int = 10) -> dict
 _IMAGE_EXT = re.compile(r"\.(png|jpe?g|gif|webp|bmp)(\?|$)", re.I)
 
 
+def _from_local_file(doc: Document) -> bool:
+    ev = doc.meta.get("evidence") if isinstance(doc.meta, dict) else None
+    return doc.platform == "file" or (isinstance(ev, dict) and ev.get("collector") == "files")
+
+
 def describe_media(docs: Iterable[Document], router: Any, max_images: int = 8, *,
                    prompt: str | None = None, max_workers: int = 4) -> int:
     """Fill ``Media.description`` for image attachments using the vision role.
@@ -339,7 +344,10 @@ def describe_media(docs: Iterable[Document], router: Any, max_images: int = 8, *
     def work(item: tuple[Document, Any]) -> bool:
         doc, media = item
         try:
-            desc = router.describe_image(media.url, prompt=prompt)
+            # Local image paths are read only for documents the analyst loaded with file:; a path inside
+            # collected web/social content must never make VigilEye read and send a local file.
+            local = {"allow_local": True} if _from_local_file(doc) else {}
+            desc = router.describe_image(media.url, prompt=prompt, **local)
             media.description = (desc or "").strip() or None
             return media.description is not None
         except Exception as e:  # noqa: BLE001 - degrade gracefully
@@ -438,7 +446,7 @@ def merge_entities(entities: Iterable[Entity], *, max_context: int = 6) -> list[
 
 
 def extract_entities(docs_chunk: list[Document], router: Any, *, lens: "Lens | None" = None,
-                     env: Any = None, max_tokens: int | None = None) -> list[Entity]:
+                     env: Any = None, max_tokens: int | None = None, author_key: bytes | None = None) -> list[Entity]:
     """Named-entity extraction for one chunk via the cheap ``extractor`` role.
 
     Raises on LLM failure; callers (the engine) catch and degrade.
@@ -447,9 +455,10 @@ def extract_entities(docs_chunk: list[Document], router: Any, *, lens: "Lens | N
 
     lens = lens or get_lens("general")
     env = env or template_env()
+    documents, nonce = fence_untrusted(render_chunk(docs_chunk, max_tokens, key=author_key))
     prompt = env.get_template("entities.j2").render(
         lens=lens,
-        documents=render_chunk(docs_chunk, max_tokens),
+        documents=documents, nonce=nonce,
         entity_types=lens.entity_types,
     )
     system = env.get_template("system.j2").render(lens=lens, task="entity extraction", **_tradecraft_ctx())

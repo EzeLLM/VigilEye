@@ -80,6 +80,13 @@ roles:
   #   - {provider: ollama, model: bespoke-minicheck, context_window: 32000}
   # critic:                        # optional red-team reviewer for --critic; prefer a different model family
   #   - {provider: local, model: Qwen/Qwen2.5-32B-Instruct, context_window: 32768}   # from the synthesizer
+  # planner:                       # `vigileye investigate` collection planner (falls back to analyst); its targets
+  #   - {provider: openai, model: gpt-4o-mini, context_window: 128000}   # always pass the auto-mode target policy
+  # embedder:                      # optional /v1/embeddings model: hybrid retrieval for `vigileye ask` and
+  #                                # relevance-aware selection; never falls back to chat roles; lexical-only if unset
+  #   - {provider: openai, model: text-embedding-3-small}      # optional: dimensions: 512
+  #   - {provider: local, model: BAAI/bge-m3}                   # vLLM `--task embed`, or llama.cpp `llama-server --embeddings`
+  #   - {provider: ollama, model: nomic-embed-text}             # Ollama /v1/embeddings
 
 llm:
   temperature: 0.2
@@ -91,6 +98,11 @@ collectors:
   http:
     user_agent: "VigilEye/2.0 (+https://github.com/EzeLLM/VigilEye)"
     timeout: 20
+    # allow_private: false         # true turns the SSRF guard off for EVERY collector (lab use only)
+  web:
+    allow_private: false           # SSRF guard: refuse loopback/private/link-local/metadata hosts on every fetch and
+                                   # redirect hop (web pages and vision image fetches). true = lab use only.
+                                   # The HTTP API's target policy stays strict either way.
   reddit:                          # praw is used when these are set, public JSON otherwise
     client_id: ${REDDIT_CLIENT_ID}
     client_secret: ${REDDIT_CLIENT_SECRET}
@@ -135,6 +147,10 @@ analysis:
 
   # Authoritative vulnerability grounding (CLI: --ground-cves). Off by default: it downloads reference data.
   ground_cves: false               # check CVEs against CISA KEV + FIRST EPSS (keyless; only CVE ids are sent)
+
+  # When max_chunks forces a cut and --query is set, keep the documents most relevant to the query
+  # (BM25/FTS5 + the optional embedder role, 0.6) before engagement/recency (0.4).
+  relevance_selection: true
   # warninglists_dir: ~/src/misp-warninglists   # optional MISP warninglists clone (benign-infrastructure lists)
 
 intel:                             # reference data cache for analysis.ground_cves / `vigileye refdata`
@@ -149,4 +165,9 @@ output:
   tlp: clear                       # TLP marking on STIX exports: clear | green | amber | red (CLI: --tlp)
 
 store:
-  path: ${VIGILEYE_STORE:-.vigileye/cases.db}
+  path: ${VIGILEYE_STORE:-.vigileye/cases.db}   # `vigileye ask` keeps its search index next to it (cases.index.db)
+
+evidence:                          # chain of custody (`vigileye evidence verify|manifest|log`)
+  custody: true                    # hash-stamp every document at collection and log collect/analyze/export
+                                   # entries in an append-only, hash-chained table in the case store
+  actor: ${VIGILEYE_ACTOR:-vigileye}   # who handled the evidence, recorded in every custody entry

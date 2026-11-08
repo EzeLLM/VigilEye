@@ -52,7 +52,12 @@ class App:
 
         self.config = config
         self.quiet = quiet
+        from .evidence import EvidenceLedger
+
         self.store = CaseStore(store_path or config.get("store.path", ".vigileye/cases.db"))
+        self.ledger = EvidenceLedger(self.store)  # chain of custody, same SQLite file as the store
+        self.custody = bool(config.get("evidence.custody", True))
+        self.actor = str(config.get("evidence.actor") or "vigileye")
         self.router = LLMRouter.from_config(config)
         if config.get("llm.cache", True):
             self.router.set_cache_backend(self.store.cache_get, self.store.cache_put)
@@ -61,19 +66,33 @@ class App:
         if not self.quiet:
             _err(f"  · {msg}")
 
-    def collect(self, targets: list[str], case: str, limit: int = 100, opts: dict | None = None) -> dict:
+    def record(self, case: str, action: str, subject: str | None = None, details: dict | None = None) -> None:
+        """Append a custody entry (no-op with ``evidence.custody: false``)."""
+        if self.custody:
+            self.ledger.record(case, action, subject=subject, details=details, actor=self.actor)
+
+    def collect(self, targets: list[str], case: str, limit: int = 100, opts: dict | None = None, *,
+                trust: str = "manual") -> dict:
+        """Collect ``targets`` into ``case``. ``trust`` names where the targets came from
+        (``manual``, ``api`` or ``auto``); see :func:`vigileye.collectors.base.collect`."""
         from .collectors import collect
+        from .evidence import collect_details, stamp
 
         self.store.ensure_case(case)
         counts = {}
         for spec in targets:
             docs, failed = [], None
             try:
-                for d in collect(spec, limit=limit, config=self.config.section("collectors"), **(opts or {})):
+                for d in collect(spec, limit=limit, config=self.config.section("collectors"), trust=trust,
+                                 **(opts or {})):
                     docs.append(d)
             except Exception as e:  # keep partial results, report the failure
                 failed = str(e)
+            if docs and self.custody:  # hash every item at collection; unchanged re-collections keep their stamp
+                stamp(docs, spec=spec, existing=self.ledger.stamps(case, [d.fingerprint() for d in docs]))
             new = self.store.add_documents(case, docs) if docs else 0
+            self.record(case, "collect", subject=spec,
+                        details=collect_details(docs, new=new, **({"error": failed} if failed else {})))
             counts[spec] = {"collected": len(docs), "new": new, **({"error": failed} if failed else {})}
             self.progress(f"{spec}: {len(docs)} collected, {new} new" + (f" (error: {failed})" if failed else ""))
         return counts
@@ -84,6 +103,7 @@ class App:
                 verify: bool | None = None, critic: bool | None = None, ground_cves: bool | None = None,
                 tlp: str | None = None) -> tuple:
         from .analysis import AnalysisEngine
+        from .evidence import file_hashes, report_sha256
         from .report import write_report
 
         docs = self.store.get_documents(case, platform=platform, since=since, limit=limit)
@@ -94,11 +114,42 @@ class App:
         report = engine.run(docs, lens=lens or self.config.get("analysis.lens", "general"), query=query, case=case,
                             use_vision=vision, ach=ach, verify=verify, critic=critic, ground_cves=ground_cves,
                             progress=self.progress)
+        if self.custody:
+            report.stats["custody"] = self.ledger.custody_summary(case, docs)  # rendered in Methodology
         rid = self.store.save_report(report)
+        self.record(case, "analyze", subject=f"report:{rid}",
+                    details={"report_id": rid, "lens": report.lens, "documents": len(docs),
+                             "report_sha256": report_sha256(report)})
         paths = write_report(report, out or self.config.get("output.dir", "export"),
                              formats=tuple(formats or self.config.get("output.formats", ["md", "json", "html"])),
                              tlp=tlp or self.config.get("output.tlp", "clear") or "clear")
+        self.record(case, "export", subject=f"report:{rid}", details={"report_id": rid, "files": file_hashes(paths)})
         return rid, report, paths
+
+    def amend_report(self, rid: int | None, report, paths=()) -> int:
+        """Store a changed report in place (a new row if ``rid`` is gone) and log it, so evidence
+        verification checks the stored report against its newest hash. Returns the report id."""
+        from .evidence import file_hashes, report_sha256
+
+        if rid is not None and self.store.update_report(rid, report):
+            action = "amend"
+        else:
+            rid, action = self.store.save_report(report), "analyze"
+        self.record(report.case, action, subject=f"report:{rid}",
+                    details={"report_id": rid, "lens": report.lens, "report_sha256": report_sha256(report)})
+        if paths:
+            self.record(report.case, "export", subject=f"report:{rid}",
+                        details={"report_id": rid, "files": file_hashes(paths)})
+        return rid
+
+    def ask(self, case: str, question: str, *, k: int = 12, verify: bool = True, platform: str | None = None):
+        from .ask import ask as _ask
+
+        if not self.store.count_documents(case):
+            raise RuntimeError(f"case '{case}' has no documents — run `vigileye collect` first")
+        self.progress(f"retrieving up to {k} documents from case '{case}'")
+        return _ask(self.store, case, question, self.router, k=k, verify=verify, platform=platform,
+                    verify_llm=bool(self.config.get("analysis.verify_llm", True)))
 
 
 def _kv(pairs: list[str] | None) -> dict:
@@ -165,6 +216,18 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--opt", action="append")
     _add_analysis_flags(r)
 
+    iv = sub.add_parser("investigate", help="iterative, policy-gated collect -> analyze -> plan loop")
+    iv.add_argument("question", help="the investigation question (also the analysis query)")
+    iv.add_argument("--seed", dest="seeds", action="append", required=True, metavar="SPEC",
+                    help="seed target spec (repeatable)")
+    iv.add_argument("--case", required=True)
+    iv.add_argument("--rounds", type=int, default=3, help="planner rounds after the seed round (default 3)")
+    iv.add_argument("--max-new", dest="max_new", type=int, default=4, help="new targets per round (default 4)")
+    iv.add_argument("--limit", type=int, default=50, help="documents per target (default 50)")
+    iv.add_argument("--opt", action="append", help="collector option key=value (repeatable)")
+    iv.add_argument("--yes", action="store_true", help="collect policy-approved planner targets without asking")
+    _add_analysis_flags(iv)  # --max-docs is the case document budget here (default 2000); --query is unused
+
     sub.add_parser("cases", help="list cases")
     rp = sub.add_parser("reports", help="list reports for a case")
     rp.add_argument("--case", required=True)
@@ -183,6 +246,21 @@ def build_parser() -> argparse.ArgumentParser:
     sg = sub.add_parser("signals", help="compute deterministic evidence signals for a case (no LLM)")
     sg.add_argument("--case", required=True)
     sg.add_argument("--json", action="store_true", help="print signals and clusters as JSON")
+    ak = sub.add_parser("ask", help="answer a question from a case's documents with verified citations")
+    ak.add_argument("question", nargs="+", help="the question (quote it)")
+    ak.add_argument("--case", required=True)
+    ak.add_argument("--k", type=int, default=12, help="documents to retrieve (default 12)")
+    ak.add_argument("--platform", help="only retrieve documents from this platform")
+    akv = ak.add_mutually_exclusive_group()
+    akv.add_argument("--verify", dest="verify", action="store_true", default=True,
+                     help="check every citation against its source (default)")
+    akv.add_argument("--no-verify", dest="verify", action="store_false")
+    ak.add_argument("--json", action="store_true", help="print the answer as JSON")
+    evp = sub.add_parser("evidence", help="chain of custody: verify, manifest, log")
+    evp.add_argument("evidence_cmd", choices=["verify", "manifest", "log"])
+    evp.add_argument("--case", required=True)
+    evp.add_argument("--out", help="manifest: write JSON + .sha256 sidecar here")
+    evp.add_argument("--anchor", help="verify: chain head recorded earlier (e.g. from a manifest)")
     rd = sub.add_parser("refdata", help="reference data cache: CISA KEV and FIRST EPSS")
     rd_sub = rd.add_subparsers(dest="refdata_cmd", required=True)
     rd_sub.add_parser("update", help="download the CISA KEV catalog now")
@@ -240,6 +318,13 @@ def main(argv: list[str] | None = None) -> int:
                     res = router.ping(role)
                     ok &= res["ok"]
                     print(f"{role:<12} " + (f"OK  {res['provider']}/{res['model']} {res['latency_s']}s" if res["ok"] else f"FAIL {res['error']}"))
+                if router.has_role("embedder"):  # embedding models reject chat, so ping() cannot test them
+                    try:
+                        emb = router.embeddings(["ping"])
+                        print(f"{'embedder':<12} OK  {emb.label} dim={len(emb.vectors[0])} {emb.latency_s}s")
+                    except Exception as e:  # noqa: BLE001
+                        ok = False
+                        print(f"{'embedder':<12} FAIL {e}")
                 return 0 if ok else 1
             return 0
         if args.cmd == "refdata":
@@ -276,6 +361,63 @@ def main(argv: list[str] | None = None) -> int:
                                              formats=formats, out=args.out, verify=args.verify,
                                              critic=args.critic, ground_cves=args.ground_cves, tlp=args.tlp)
             _print_report_summary(rid, report, paths)
+            return 0
+        if args.cmd == "investigate":
+            from .investigate import Investigation, prompt_approver
+
+            formats = _formats(args.formats)
+            if args.yes:
+                approve = None
+            elif sys.stdin.isatty():
+                approve = prompt_approver()
+            else:
+                _err("note: stdin is not a TTY and --yes was not given: planner targets will be declined")
+                approve = lambda cands: []  # noqa: E731
+            since = datetime.fromisoformat(args.since) if args.since else None
+            res = Investigation(
+                app, case=args.case, question=args.question,
+                lens=args.lens or config.get("analysis.lens", "general"), seeds=args.seeds,
+                rounds=args.rounds, max_new_targets=args.max_new, limit_per_target=args.limit,
+                max_docs=args.max_docs or 2000, approve=approve, progress=app.progress,
+                seed_mode="manual", allow_files=True, opts=_kv(args.opt),
+                analyze_kwargs={"platform": args.platform, "since": since, "vision": args.vision, "ach": args.ach,
+                                "verify": args.verify, "critic": args.critic, "ground_cves": args.ground_cves,
+                                "formats": formats, "out": args.out, "tlp": args.tlp}).run()
+            for e in res.errors:
+                _err(f"warning: {e}")
+            if res.report is None:
+                _err(f"error: investigation stopped ({res.stopped_reason}) before any analysis")
+                return 1
+            _print_report_summary(res.report_id, res.report, res.paths)
+            print(f"stopped: {res.stopped_reason} after {len(res.rounds) - 1} planner round(s)")
+            return 0
+        if args.cmd == "ask":
+            from .ask import render_answer
+
+            ans = app.ask(args.case, " ".join(args.question), k=args.k, verify=args.verify, platform=args.platform)
+            print(json.dumps(ans.to_dict(), indent=2, ensure_ascii=False, default=str) if args.json
+                  else render_answer(ans), end="\n" if args.json else "")
+            return 0
+        if args.cmd == "evidence":
+            from .evidence import format_entry
+
+            if args.evidence_cmd == "verify":
+                res = app.ledger.verify_case(args.case, anchor=args.anchor)
+                print(json.dumps(res, indent=2))
+                return 0 if res["ok"] else 1
+            if args.evidence_cmd == "manifest":
+                if args.out:
+                    res = app.ledger.write_manifest(args.case, args.out, record=app.custody)
+                    print(f"manifest {res['path']} sha256={res['sha256']} chain_head={res['chain_head']}")
+                else:
+                    print(json.dumps(app.ledger.manifest(args.case), indent=2))
+                return 0
+            entries = app.ledger.entries(args.case)
+            if not entries:
+                _err(f"case '{args.case}' has no custody entries")
+                return 1
+            for e in entries:
+                print(format_entry(e))
             return 0
         if args.cmd == "cases":
             for c in app.store.list_cases():
@@ -314,7 +456,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(res, indent=2, default=str) if args.json else signals_markdown(res["signals"]))
             return 0
         if args.cmd == "export":
+            from .evidence import file_hashes
+
             n = app.store.export_jsonl(args.case, args.out)
+            app.record(args.case, "export", subject=Path(args.out).name,
+                       details={"documents": n, "files": file_hashes([args.out])})
             print(f"exported {n} documents to {args.out}")
             return 0
     except KeyboardInterrupt:

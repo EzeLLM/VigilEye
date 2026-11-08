@@ -6,6 +6,8 @@ roles:
   extractor: [mock/mock-extractor]
   vision: [mock/mock-vision]
   synthesizer: [mock/mock-synthesizer]
+  embedder: [mock/mock-embedder]     # hashed bag-of-words vectors: hybrid retrieval for `ask`, offline
+  planner: [mock/mock-planner]       # `investigate`: the mock proposes no targets, so the loop stops at round 1
 llm: {cache: false}
 # Signals, citation verification (lexical only: the mock is not a real verifier) and the rule-based critic
 # all run with their defaults; CVE grounding stays off and, if enabled, reads only the local cache.
@@ -13,3 +15,4 @@ analysis: {lens: general, chunk_tokens: 4000, max_chunks: 8}
 intel: {offline: true}
 output: {dir: export, formats: [md, json, html], tlp: clear}
 store: {path: "${VIGILEYE_STORE:-.vigileye/offline.db}"}
+evidence: {custody: true, actor: vigileye}

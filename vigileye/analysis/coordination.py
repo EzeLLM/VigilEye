@@ -209,10 +209,15 @@ def _own_hosts(doc: Document) -> tuple[str, ...]:
 
 
 def display_object(obj: str) -> str:
-    """Object id as shown in outputs: profile-like URL path segments are masked as ``[account]``."""
+    """Object id as shown in outputs: profile-like URL path segments, and the account part of
+    links on known social hosts (``x.com/<handle>/status/1``, ``t.me/<channel>/45``), are masked
+    as ``[account]``."""
     if not obj.startswith("URL:"):
         return obj
-    return _PROFILE_PATH.sub(lambda m: (m.group(1) or m.group(2) or m.group(3)) + "[account]", obj)
+    from ..policy import mask_profile_urls  # lazy: policy imports the collectors package
+
+    obj = _PROFILE_PATH.sub(lambda m: (m.group(1) or m.group(2) or m.group(3)) + "[account]", obj)
+    return mask_profile_urls(obj)
 
 
 def share_objects(doc: Document, *, cluster_of: dict[str, str] | None = None, min_tagseq: int = 3) -> set[str]:

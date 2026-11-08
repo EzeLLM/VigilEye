@@ -130,6 +130,15 @@ class CaseStore:
                                     json.dumps(report.to_dict(), default=str, ensure_ascii=False)))
             return int(cur.lastrowid)
 
+    def update_report(self, id: int, report: Report) -> bool:
+        """Replace the stored JSON of report ``id`` in place (e.g. to add a provenance section).
+        Returns False when there is no such report. Log the change in the custody ledger
+        (``App.amend_report`` does), or ``vigileye evidence verify`` flags the report as modified."""
+        with self._lock, self._db:
+            cur = self._db.execute("UPDATE reports SET json=? WHERE id=?",
+                                   (json.dumps(report.to_dict(), default=str, ensure_ascii=False), int(id)))
+        return cur.rowcount > 0
+
     def list_reports(self, case: str) -> list[dict]:
         with self._lock:
             rows = self._db.execute('SELECT id, "case", lens, created_at, json FROM reports WHERE "case"=? '

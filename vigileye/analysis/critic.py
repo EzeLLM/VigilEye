@@ -40,7 +40,8 @@ log = logging.getLogger("vigileye.analysis.critic")
 
 CRITIC_VERSION = "1"
 ISSUE_TYPES = ("no_evidence", "single_origin", "circular_reporting", "confidence_overreach", "wep_confidence_mismatch",
-               "low_grade_sources", "stale_evidence", "coordination_claim_without_signal", "unverified_citation")
+               "low_grade_sources", "stale_evidence", "coordination_claim_without_signal", "unverified_citation",
+               "signal_only")
 #: Extra issue types only the LLM critic emits. They never trigger an automatic revision.
 LLM_ISSUE_TYPES = ("devils_advocacy", "key_assumption")
 SEVERITIES = ("high", "medium", "low")
@@ -74,7 +75,13 @@ _GAP_REASON = {
     "circular_reporting": "its cited sources repeat one origin",
     "low_grade_sources": "every cited source is graded E or F",
     "coordination_claim_without_signal": "it claims coordination without a computed coordination or copypasta signal",
+    "unverified_citation": "a cited source contradicts it",
+    "signal_only": "it rests only on computed signals, which do not establish the claim's content",
 }
+#: Extreme likelihoods moderated one step when the judgment ends at low confidence.
+_MODERATED_WEP = {"almost certain": "likely", "very likely": "likely", "very unlikely": "unlikely",
+                  "almost no chance": "unlikely"}
+_BLUF_CONF = re.compile(r"\b(high|moderate)(\s+|-)(confidence)\b", re.I)
 
 # ----------------------------------------------------------------------------- independence
 _URL_RE = re.compile(r"https?://[^\s<>\"'`\[\]{}|\\^]+", re.I)
@@ -233,7 +240,7 @@ def origin_key(doc: Document) -> str:
 
 def _grade_of(doc: Document, grades: dict[str, str] | None = None) -> str:
     g = (grades or {}).get(doc_ref(doc)) or _dict(doc.meta).get("grade") or _dict(doc.meta).get("admiralty") \
-        or tc.default_source_grade(doc.platform, doc.source)
+        or tc.default_source_grade(doc.platform, doc.source, doc.url)
     rel, cred = tc.parse_grade(g)
     return rel + cred
 
@@ -253,6 +260,25 @@ def independent_origins(refs: list[str], docs_by_ref: dict[str, Document], *,
     """
     groups: dict[str, list[str]] = {}
     computed, unresolved, graded, platforms = [], [], [], set()
+    roots: dict[str, Document] | None = None
+
+    def resolve_thread(key: str) -> str:
+        """``thread:<platform>:<root>`` -> the root post's ``url:`` origin when the root (a link post
+        or story in the case) relays an outbound article: comments under it restate that article."""
+        nonlocal roots
+        if roots is None:
+            roots = {}
+            for d in docs_by_ref.values():
+                own = d.id.split(":", 1)[1] if d.id.startswith(f"{d.platform}:") else d.id
+                tid = _thread_id(d)
+                if tid and (tid == own or tid == str(_dict(d.raw).get("objectID") or _dict(d.raw).get("id") or "")) \
+                        and not _dict(d.meta).get("parent_post") and not _dict(d.raw).get("link_id") \
+                        and not _dict(d.raw).get("story_id"):
+                    roots.setdefault(f"thread:{d.platform}:{tid}", d)
+        root = roots.get(key)
+        link = _outbound_link(root) if root is not None else None
+        return f"url:{link}" if link else key
+
     for ref in dict.fromkeys(str(r).strip() for r in refs or [] if str(r or "").strip()):
         doc = docs_by_ref.get(ref)
         if ref.startswith("sig:"):
@@ -265,6 +291,8 @@ def independent_origins(refs: list[str], docs_by_ref: dict[str, Document], *,
         else:
             nd = (near_dup or {}).get(ref)
             key = f"nd:{nd}" if nd and not _dict(doc.meta).get("near_dup_cluster") else origin_key(doc)
+            if key.startswith("thread:"):
+                key = resolve_thread(key)
             platforms.add(doc.platform)
             graded.append(_grade_of(doc, grades))
         groups.setdefault(key, []).append(ref)
@@ -287,14 +315,45 @@ def computed_credibility(n_origins: int, *, contradicted: bool = False) -> str:
 
 
 # ----------------------------------------------------------------------------- lint
-_COORD_RE = re.compile(r"\b(?:co-?ordinat(?:e|ed|ion|ing)|inauthentic\w*|astroturf\w*|brigad(?:e|es|ed|ing)|"
+_COORD_RE = re.compile(r"\b(?:(?P<generic>co-?ordinat(?:e|ed|ion|ing))|inauthentic\w*|astroturf\w*|brigad(?:ed|ing)|"
                        r"(?P<bot>bot-?nets?)|sock[- ]?puppet\w*|copy-?pasta\w*|amplification networks?)\b", re.I)
+#: Ordinary uses of "coordinated": not claims of coordinated (inauthentic) behaviour.
+_COORD_BENIGN = re.compile(
+    r"\bco-?ordinat\w*\s+(?:vulnerability\s+)?disclosures?\b"
+    r"|\bco-?ordinat\w*\s+(?:the\s+|an?\s+|their\s+|its\s+|international\s+|joint\s+|emergency\s+)?"
+    r"(?:response|evacuations?|relief|rescue|recovery|efforts?|patch(?:es|ing)?|release|takedowns?|"
+    r"law[- ]enforcement|investigations?|sanctions|aid|operations? (?:with|by)|advisor(?:y|ies))\b"
+    r"|\bco-?ordinat\w*\s+(?:with|between|among|across)\s+(?:the\s+)?(?:authorities|agencies|government|"
+    r"police|emergency|partners|vendors|cisa|certs?|nato|allies|officials|ministries|responders|researchers)\b"
+    r"|\bco-?ordination (?:centre|center|cent|office|team|unit|cell|meeting|body)\b", re.I)
+#: Words that put a generic "coordinated" in an online-behaviour context outside the influence lenses.
+_IO_CONTEXT = re.compile(r"\b(?:accounts?|posts?|posting|activity|behaviou?r|campaigns?|networks?|amplif\w*|hashtags?|narratives?|"
+                         r"messag\w*|bots?|trolls?|inauthentic\w*|astroturf\w*|influence|disinformation|propaganda|"
+                         r"engagement|retweet\w*|repost\w*|shar(?:e|es|ed|ing)|upvot\w*|brigad\w*|sock[- ]?puppet\w*)\b",
+                         re.I)
+#: Lenses whose subject is online behaviour: any non-benign "coordinated" there is a coordination claim.
+_IO_LENSES = frozenset({"influence", "narrative", "community"})
 _NEGATION = re.compile(r"\b(?:no|not|without|absence of|lack of|lacks?|little|nor|never|unlikely|rule[sd]? out)\b", re.I)
+_POST_NEGATION = re.compile(
+    r"\b(?:was|were|is|are|has been|have been|had been|been)\s+(?:not|never)\b"
+    r"|\bnot\s+(?:been\s+)?(?:detected|found|observed|identified|seen|evident|present|established|supported|"
+    r"confirmed|indicated|apparent)\b"
+    r"|\b(?:is|was|appears|seems|remains)\s+(?:unlikely|unsupported|unconfirmed)\b|\bruled out\b", re.I)
+_CLAUSE_SPLIT = re.compile(r"[.!?;,:()]|\s(?:but|however|although|though|whereas|while|yet)\s", re.I)
 #: In these lenses "botnet" means malware infrastructure, not inauthentic accounts.
 _CYBER_LENSES = frozenset({"cyber", "threat"})
 _EXTREME_WEP_TEXT = re.compile(r"\b(?:almost certain(?:ly)?|nearly certain|very likely|highly likely|very unlikely|"
                                r"highly unlikely|almost no chance)\b", re.I)
 _INLINE_SIG = re.compile(r"\[(sig:[^\]\s,;|]+)\]", re.I)
+
+
+#: Claim content a reference dataset (KEV: "known exploited") cannot corroborate: attribution,
+#: targeting, sponsorship, campaigns.
+_BEYOND_REFDATA = re.compile(
+    r"\b(?:actors?|apt\s?\d+|(?:uta|unc|ta|dev|storm|temp)[-\s]?\d{2,5}|group|gang|crew|state[- ](?:backed|"
+    r"sponsored|actor)|nation[- ]state|chinese|china|russian?|iranian?|north korean|dprk|attribut\w*|behind|"
+    r"responsible|sponsored|backed|campaigns?|target(?:s|ed|ing)?|against|victims?|ministr\w*|governments?|"
+    r"sectors?|organi[sz]ations?|compan(?:y|ies)|espionage|ransomware|affiliates?)\b", re.I)
 
 
 def _one_line(text: Any, limit: int) -> str:
@@ -308,21 +367,61 @@ def _refs_md(refs: Iterable[str], limit: int = 5) -> str:
 
 
 def _coordination_claim(text: str, lens: str) -> str | None:
-    """``'asserted'`` / ``'negated'`` when the text claims (or denies) coordination, else ``None``."""
+    """``'asserted'`` / ``'negated'`` when the text claims (or denies) coordination, else ``None``.
+
+    Ordinary uses ("coordinated disclosure", "coordinated the evacuation", "fire brigade") are not
+    claims. Outside the influence/narrative/community lenses a bare "coordinated" counts only next to
+    online-behaviour words (accounts, posts, campaign, amplification, ...) in the same sentence.
+    Negation is scoped to the clause, before the term ("no evidence of coordinated activity") or
+    after it ("coordinated activity was not detected").
+    """
+    text = text or ""
+    benign = [m.span() for m in _COORD_BENIGN.finditer(text)]
     negated = False
-    for m in _COORD_RE.finditer(text or ""):
+    for m in _COORD_RE.finditer(text):
         if m.group("bot") and lens in _CYBER_LENSES:
             continue
-        before = re.split(r"[.!?;]", text[max(0, m.start() - 60):m.start()])[-1]
-        if not _NEGATION.search(before):
-            return "asserted"
-        negated = True
+        if any(a <= m.start() < b for a, b in benign):
+            continue
+        sent_start = max((x.end() for x in re.finditer(r"[.!?;]", text[: m.start()])), default=0)
+        sent_end = next((x.start() + m.end() for x in re.finditer(r"[.!?;]", text[m.end():])), len(text))
+        if m.group("generic") and lens not in _IO_LENSES and not _IO_CONTEXT.search(text[sent_start:sent_end]):
+            continue
+        clause_start = max((x.end() for x in _CLAUSE_SPLIT.finditer(text, max(0, m.start() - 80), m.start())),
+                           default=max(0, m.start() - 80))
+        nxt = _CLAUSE_SPLIT.search(text, m.end())
+        clause_end = nxt.start() if nxt else len(text)
+        if _NEGATION.search(text, clause_start, m.start()) or _POST_NEGATION.search(text, m.end(), clause_end):
+            negated = True
+            continue
+        return "asserted"
     return "negated" if negated else None
 
 
-def _has_coord_signal(refs: Iterable[str], text: str, sig_ids: set[str] | None) -> bool:
+def _valid_coord_signal(sig: dict | None) -> bool:
+    """A cited signal that can back a coordination claim: a ``sig:coordination`` network that passed
+    its significance test, or a ``sig:copypasta`` cluster posted by at least two accounts (one
+    account reposting its own text, or wire syndication, is not coordination)."""
+    if not isinstance(sig, dict):
+        return True  # signal details unavailable (older report): trust the id
+    params = sig.get("params") if isinstance(sig.get("params"), dict) else {}
+    kind = str(sig.get("kind") or sig.get("id", "").split(":", 1)[-1].split("#", 1)[0]).lower()
+    if kind == "coordination":
+        if "significant" in params:
+            return bool(params["significant"])
+        p, alpha = sig.get("p_value"), params.get("alpha", 0.05)
+        return p is not None and float(p) < float(alpha or 0.05)
+    if kind == "copypasta":
+        n = params.get("n_accounts")
+        return n is None or int(n) >= 2
+    return True
+
+
+def _has_coord_signal(refs: Iterable[str], text: str, sig_ids: set[str] | None,
+                      sigs: dict[str, dict] | None = None) -> bool:
     cands = list(refs) + _INLINE_SIG.findall(text or "")
-    return any(r.lower().startswith(COORDINATION_SIGNAL_PREFIXES) and (sig_ids is None or r in sig_ids) for r in cands)
+    return any(r.lower().startswith(COORDINATION_SIGNAL_PREFIXES) and (sig_ids is None or r in sig_ids)
+               and _valid_coord_signal((sigs or {}).get(r)) for r in cands)
 
 
 def _prepare(report: Report, docs: Iterable[Document]) -> dict:
@@ -340,18 +439,24 @@ def _prepare(report: Report, docs: Iterable[Document]) -> dict:
                 near_dup.setdefault(str(m), str(c["cluster_id"]))
     sigs = meta.get("computed_signals")
     sig_ids = {str(s.get("id")) for s in sigs if isinstance(s, dict)} if isinstance(sigs, list) else None
+    sig_by_id = {str(s.get("id")): s for s in sigs if isinstance(s, dict)} if isinstance(sigs, list) else {}
     support = _dict(meta.get("citation_support"))
     corroboration: dict[str, dict] = {}
     for i, kj in enumerate(report.key_judgments, 1):
         kid = f"KJ{i}"
         o = independent_origins(kj.evidence, docs_by_ref, near_dup=near_dup, grades=grades)
         contradicted = any(isinstance(p, dict) and p.get("label") == "contradicted" for p in support.get(kid) or [])
-        corroboration[kid] = {"n_origins": o["n_origins"],
-                              "computed_credibility": computed_credibility(o["n_origins"], contradicted=contradicted),
+        # Reference datasets (KEV, EPSS) state only exploitation status: they corroborate that, not an
+        # actor, a target or a campaign the same judgment also asserts.
+        ref_groups = [k for k in o["groups"] if k.startswith("ref:")]
+        n_eff = o["n_origins"] - (len(ref_groups) if ref_groups and len(ref_groups) < o["n_origins"]
+                                  and _BEYOND_REFDATA.search(f"{kj.title}. {kj.summary}") else 0)
+        corroboration[kid] = {"n_origins": n_eff, "n_origins_raw": o["n_origins"],
+                              "computed_credibility": computed_credibility(n_eff, contradicted=contradicted),
                               "groups": o["groups"], "platforms": o["platforms"], "best_grade": o["best_grade"],
                               "computed": o["computed"], "unresolved": o["unresolved"], "contradicted": contradicted}
     end = _parse_dt(_dict(_dict(report.stats).get("time_range")).get("end"))
-    return {"docs_by_ref": docs_by_ref, "grades": grades, "sig_ids": sig_ids, "support": support,
+    return {"docs_by_ref": docs_by_ref, "grades": grades, "sig_ids": sig_ids, "sigs": sig_by_id, "support": support,
             "corroboration": corroboration, "end": end}
 
 
@@ -369,7 +474,7 @@ def _lint(report: Report, prep: dict, stale_days: int | None, now: datetime | No
     # BLUF ---------------------------------------------------------------------------------------
     all_refs = [r for kj in report.key_judgments for r in kj.evidence]
     claim = _coordination_claim(report.bluf, lens)
-    if claim and not _has_coord_signal(all_refs, report.bluf, prep["sig_ids"]):
+    if claim and not _has_coord_signal(all_refs, report.bluf, prep["sig_ids"], prep.get("sigs")):
         add("BLUF", "coordination_claim_without_signal", "high" if claim == "asserted" else "low",
             "The BLUF " + ("asserts" if claim == "asserted" else "rules out") + " coordinated or inauthentic activity, "
             "but no key judgment cites a computed coordination or copypasta signal.", [],
@@ -402,6 +507,12 @@ def _lint(report: Report, prep: dict, stale_days: int | None, now: datetime | No
                     f"{kid} cites {len(members)} documents ({_refs_md(members)}) that are {what} (`{key}`); they "
                     "count as one origin, not as corroboration.", members,
                     "Count these documents as one source, and find the first copy online and an independent origin.")
+        if refs and n == 0 and conf == "high" and all(str(r).startswith("sig:") for r in refs):
+            add(kid, "signal_only", "medium",
+                f"{kid} is held at high confidence but cites only computed signals ({_refs_md(refs)}). A signal "
+                "measures the collected material (volume, duplication, co-sharing); it does not by itself establish "
+                "who is behind it or why.", refs,
+                "Cite documents that state the claim, or lower confidence to moderate.")
         only = next(iter(co["groups"]), "")
         if n == 1 and conf in ("high", "moderate") and not only.startswith("ref:"):  # reference data stands alone
             if conf == "high":
@@ -436,11 +547,14 @@ def _lint(report: Report, prep: dict, stale_days: int | None, now: datetime | No
                 [doc_ref(d) for d in cited_docs if d.created_at == newest],
                 "Re-collect recent material, date the judgment explicitly, or lower confidence.")
         claim = _coordination_claim(text, lens)
-        if claim and not _has_coord_signal(refs, text, prep["sig_ids"]):
+        if claim and not _has_coord_signal(refs, text, prep["sig_ids"], prep.get("sigs")):
+            weak = [r for r in refs + _INLINE_SIG.findall(text) if r.lower().startswith(COORDINATION_SIGNAL_PREFIXES)]
+            why = (f"cites only computed signals that do not establish it ({_refs_md(dict.fromkeys(weak))}: a "
+                   "coordination network that is not statistically significant, or near-duplicates from a single "
+                   "account)" if weak else "cites no computed coordination or copypasta signal")
             add(kid, "coordination_claim_without_signal", "high" if claim == "asserted" else "low",
                 f"{kid} " + ("asserts" if claim == "asserted" else "rules out") + " coordinated or inauthentic "
-                "activity, but cites no computed coordination or copypasta signal. Reading the text alone does not "
-                "establish coordination.", [],
+                f"activity, but {why}. Reading the text alone does not establish coordination.", weak,
                 "Cite a sig:coordination or sig:copypasta signal, or restate the point as a hypothesis at low "
                 "confidence.")
         bad = [p for p in prep["support"].get(kid) or []
@@ -557,8 +671,10 @@ def _revision_level(c: dict) -> str | None:
         return None
     if issue in ("no_evidence", "low_grade_sources", "coordination_claim_without_signal") and sev == "high":
         return "low"
-    if issue == "confidence_overreach" or (issue in ("circular_reporting", "low_grade_sources")
-                                           and sev in ("high", "medium")):
+    if issue in ("confidence_overreach", "signal_only") or (issue in ("circular_reporting", "low_grade_sources")
+                                                            and sev in ("high", "medium")):
+        return "moderate"
+    if issue == "unverified_citation" and sev == "high":  # a cited source contradicts the judgment
         return "moderate"
     return None
 
@@ -596,18 +712,64 @@ def apply_critiques(report: Report, critiques: list[dict]) -> list[dict]:
     return revisions
 
 
+def reconcile_after_revisions(report: Report, revisions_made: Iterable[dict] = ()) -> list[dict]:
+    """Carry confidence revisions into the parts of the report that state them in prose.
+
+    * A key judgment that this review lowered to low confidence (``revisions_made``) and that still
+      carries an extreme likelihood has the likelihood moderated one step (almost certain / very
+      likely -> likely; very unlikely / almost no chance -> unlikely). Judgments that came in at low
+      confidence are only flagged (``wep_confidence_mismatch``).
+    * A BLUF that states a higher confidence ("with high confidence") than any key judgment now
+      holds is reworded to the highest key-judgment confidence.
+
+    Returns revisions ``{'target', 'field', 'from', 'to', 'critique': None}`` and adds a gap line each.
+    """
+    revisions: list[dict] = []
+    gaps: list[str] = []
+    lowered = {str(r.get("target")) for r in revisions_made or ()
+               if isinstance(r, dict) and r.get("field") == "confidence" and r.get("to") == "low"}
+    for i, kj in enumerate(report.key_judgments, 1):
+        wep = tc.normalize_wep(kj.likelihood)
+        if f"KJ{i}" in lowered and tc.normalize_confidence(kj.confidence) == "low" and wep in _MODERATED_WEP:
+            kj.likelihood = _MODERATED_WEP[wep]
+            revisions.append({"target": f"KJ{i}", "field": "likelihood", "from": wep, "to": kj.likelihood,
+                              "critique": None})
+            gaps.append(f"KJ{i} likelihood moderated from {wep} to {kj.likelihood}: an extreme probability needs "
+                        "more than low confidence.")
+    if report.key_judgments and report.bluf:
+        top = max(_CONF_RANK.get(tc.normalize_confidence(k.confidence), 1) for k in report.key_judgments)
+        level = next(k for k, v in _CONF_RANK.items() if v == top)
+        stated = [m.group(1).lower() for m in _BLUF_CONF.finditer(report.bluf)]
+        if any(_CONF_RANK[x] > top for x in stated):
+            before = max(stated, key=_CONF_RANK.get)
+            report.bluf = _BLUF_CONF.sub(lambda m: (level if _CONF_RANK[m.group(1).lower()] > top else m.group(1))
+                                         + m.group(2) + m.group(3), report.bluf)
+            revisions.append({"target": "BLUF", "field": "confidence", "from": before, "to": level, "critique": None})
+            gaps.append(f"BLUF confidence reworded from {before} to {level}: no key judgment is held above {level} "
+                        "confidence after review.")
+    if gaps:
+        report.gaps = list(dict.fromkeys([*(report.gaps or []), *gaps]))
+    return revisions
+
+
 def _restore_baseline(report: Report, previous: Any) -> None:
     """Undo this module's own earlier revisions, if nothing else changed them since, so a re-run is idempotent."""
-    first: dict[str, str] = {}
-    last: dict[str, str] = {}
+    first: dict[tuple[str, str], str] = {}
+    last: dict[tuple[str, str], str] = {}
     for r in _dict(previous).get("revisions") or []:
-        if isinstance(r, dict) and r.get("field") == "confidence":
-            first.setdefault(str(r.get("target")), str(r.get("from")))
-            last[str(r.get("target"))] = str(r.get("to"))
-    for target, original in first.items():
+        if isinstance(r, dict) and r.get("field") in ("confidence", "likelihood"):
+            key = (str(r.get("target")), str(r.get("field")))
+            first.setdefault(key, str(r.get("from")))
+            last[key] = str(r.get("to"))
+    for (target, fld), original in first.items():
         idx = _kj_index(target, len(report.key_judgments))
-        if idx is not None and report.key_judgments[idx].confidence == last[target] and original in _CONF_RANK:
-            report.key_judgments[idx].confidence = original
+        if idx is None:
+            continue
+        kj = report.key_judgments[idx]
+        if fld == "confidence" and kj.confidence == last[(target, fld)] and original in _CONF_RANK:
+            kj.confidence = original
+        elif fld == "likelihood" and kj.likelihood == last[(target, fld)] and original in tc.WEP_TERMS:
+            kj.likelihood = original
 
 
 def _section_markdown(report: Report, review: dict) -> str:
@@ -618,7 +780,8 @@ def _section_markdown(report: Report, review: dict) -> str:
          "confidence._", "", "**Corroboration**", ""]
     was = {}
     for r in review["revisions"]:
-        was.setdefault(r["target"], r["from"])
+        if r.get("field") == "confidence":
+            was.setdefault(r["target"], r["from"])
     for i, kj in enumerate(report.key_judgments, 1):
         co = review["corroboration"][f"KJ{i}"]
         cred = co["computed_credibility"]
@@ -641,7 +804,9 @@ def _section_markdown(report: Report, review: dict) -> str:
     if not review["critiques"]:
         L.append("- _No issues found._")
     L += ["", "**Revisions**", ""]
-    L += [f"- {r['target']} {r['field']}: {r['from']} -> {r['to']} ({r['critique']})" for r in review["revisions"]]
+    L += [f"- {r['target']} {r['field']}: {r['from']} -> {r['to']}" + (f" ({r['critique']})" if r.get("critique") else
+                                                                         " (reconciled with the revised judgments)")
+          for r in review["revisions"]]
     if not review["revisions"]:
         L.append("- _None; confidence levels were left unchanged._")
     return "\n".join(L)
@@ -677,6 +842,7 @@ def review_report(report: Report, docs: Iterable[Document], *, router: Any = Non
         c["id"] = f"C{k}"
     if auto_revise:
         revisions = apply_critiques(report, critiques)
+        revisions += reconcile_after_revisions(report, revisions)
     else:
         revisions = list(_dict(previous).get("revisions") or [])
     review = {"version": CRITIC_VERSION, "critic": f"critic@{CRITIC_VERSION}", "critiques": critiques,
@@ -701,5 +867,6 @@ def review_report(report: Report, docs: Iterable[Document], *, router: Any = Non
 
 __all__ = [
     "CRITIC_VERSION", "ISSUE_TYPES", "LLM_ISSUE_TYPES", "CRITIC_PROMPT", "origin_key", "independent_origins",
-    "computed_credibility", "lint_report", "llm_critique", "apply_critiques", "review_report",
+    "computed_credibility", "lint_report", "llm_critique", "apply_critiques", "reconcile_after_revisions",
+    "review_report",
 ]

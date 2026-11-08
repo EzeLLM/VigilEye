@@ -7,8 +7,10 @@ Targets::
     search:query@instance      status search (many instances require a token)
     public@instance            local public timeline (``local=true``)
 
-An access token may be supplied via config ``access_token`` or env
-``MASTODON_TOKEN`` (scoped per instance with ``tokens: {instance: token}``).
+An access token may be supplied per instance with ``tokens: {instance: token}``, or as one
+global token (config ``access_token`` or env ``MASTODON_TOKEN``) that is sent only to its home
+instance: ``token_instance`` (default: the configured ``instance``, ``MASTODON_INSTANCE``, or
+``mastodon.social``). A target naming any other instance is fetched without credentials.
 """
 
 from __future__ import annotations
@@ -22,6 +24,10 @@ from ..models import Document, Media
 from .base import Collector, CollectorError, register, strip_html, to_utc
 
 DEFAULT_INSTANCE = "mastodon.social"
+
+
+def _host(instance) -> str:
+    return str(instance or "").strip().lower().rstrip(".")
 
 
 def _map_status(s: dict, source: str | None = None) -> Document:
@@ -125,9 +131,26 @@ class MastodonCollector(Collector):
                 return "tag", m.group(2), m.group(1).lower()
         return "tag", t.lstrip("#"), default_instance
 
+    def token_instance(self) -> str:
+        """The one instance the global ``access_token`` / ``MASTODON_TOKEN`` belongs to:
+        ``token_instance``, else the configured ``instance``, else ``MASTODON_INSTANCE``, else
+        :data:`DEFAULT_INSTANCE`."""
+        inst = (self.config.get("token_instance") or self.config.get("instance")
+                or os.environ.get("MASTODON_INSTANCE") or DEFAULT_INSTANCE)
+        return _host(inst)
+
     def _headers(self, instance: str) -> dict:
-        tokens = self.config.get("tokens") or {}
-        tok = tokens.get(instance) or self.config.get("access_token") or os.environ.get("MASTODON_TOKEN")
+        """Authorization for ``instance`` only. A token is sent solely to the instance it is scoped
+        to (``tokens.<instance>``, or the global token's :meth:`token_instance`), so a target that
+        names another instance never receives it. Planner-proposed (``trust: auto``) targets are
+        fetched without credentials."""
+        if self.config.get("trust") == "auto":
+            return {}  # planner-proposed targets never carry the analyst's credentials
+        instance = _host(instance)
+        tokens = {_host(k): v for k, v in (self.config.get("tokens") or {}).items() if v}
+        tok = tokens.get(instance)
+        if not tok and instance == self.token_instance():
+            tok = self.config.get("access_token") or os.environ.get("MASTODON_TOKEN")
         return {"Authorization": f"Bearer {tok}"} if tok else {}
 
     def collect(self, target: str, limit: int = 100, **opts) -> Iterator[Document]:

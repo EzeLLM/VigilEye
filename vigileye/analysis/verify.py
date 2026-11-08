@@ -104,18 +104,69 @@ def _stem(tok: str) -> str:
     return tok
 
 
+#: A few security-domain synonyms folded onto one token so common paraphrases still overlap.
+_SYNONYMS = {"hacker": "attacker", "bug": "vulnerability", "flaw": "vulnerability", "vuln": "vulnerability",
+             "weakness": "vulnerability", "abus": "exploit", "leverag": "exploit", "weaponiz": "exploit",
+             "breach": "compromis", "compromise": "compromis", "intruder": "attacker"}
+#: Two-letter upper-case entities (US, UK, EU, UN): kept as tokens, unlike other 2-letter words.
+_ACRONYM = re.compile(r"(?<![\w-])[A-Z]{2}(?![\w-])")
+
+
 def _tokens(text: str) -> list[str]:
     """Lower-cased content tokens: words len>=3 minus stopwords, lightly stemmed; CVE and ATT&CK ids,
-    alphanumerics and numbers (versions, IPs, percentages) kept whole."""
+    alphanumerics and numbers (versions, IPs, percentages) kept whole; two-letter upper-case
+    entities (``US``, ``UK``) kept as ``us_``-style tokens so they cannot match each other."""
+    norm = refang(unicodedata.normalize("NFKC", text or ""))
     out: list[str] = []
-    for m in _TOKEN_RE.finditer(refang(unicodedata.normalize("NFKC", text or "")).casefold()):
+    for m in _TOKEN_RE.finditer(norm.casefold()):
         t = m.group(0)
         if t.isalpha():  # ids, alphanumerics and numbers are never filtered or stemmed
             if len(t) < 3 or t in _STOPWORDS:
                 continue
             t = _stem(t)
+            t = _SYNONYMS.get(t, t)
         out.append(t)
+    out += [a.lower() + "_" for a in _ACRONYM.findall(norm)]
     return out
+
+
+#: Analytic framing the reduce prompt mandates ("We assess with moderate confidence that ... likely");
+#: it is not claim content, so it is stripped before lexical scoring. Negative estimative terms
+#: ("unlikely", "almost no chance") are content and stay.
+_FRAMING = re.compile(
+    r"\b(?:we|analysts?)\s+(?:assess|judge|estimate|believe|conclude)(?:s|d)?\b"
+    r"|\bwith\s+(?:low|moderate|medium|high)\s+confidence\b|\b(?:low|moderate|medium|high)[- ]confidence\b"
+    r"|\b(?:almost certainly|nearly certainly|very likely|highly likely|likely|probably|possibly|roughly even chance)\b"
+    r"|\bit is\s+(?=that\b)|\bthat\b", re.I)
+
+
+def _scoring_text(claim: str) -> str:
+    return _FRAMING.sub(" ", claim or "")
+
+
+_NEG_CUE = re.compile(r"\b(?:no|not|never|nor|none|without|denied|denies|deny|false|fake|debunked|hoax|unconfirmed|"
+                      r"unverified|disputed|refuted)\b|n[\u2019']t\b", re.I)
+_HEDGE_CUE = re.compile(r"\b(?:reportedly|allegedly|alleged|rumou?rs?|rumou?red|unverified|unconfirmed|claims?|"
+                        r"claimed|speculat\w*|purportedly|supposedly|appears?|seems?|may|might|could)\b", re.I)
+
+
+def _lexical_guard(claim: str, passage: str, label: str) -> tuple[str, str]:
+    """Cap a lexical ``supported`` at ``partial`` when word overlap cannot tell support apart:
+    the matching sentence negates, hedges or questions what the claim asserts, or numbers and
+    years in the claim are missing from the passage. Returns ``(label, reason)``."""
+    if label != "supported":
+        return label, ""
+    sent = _best_sentence(passage, claim)
+    if "?" in sent:
+        return "partial", "the matching source sentence is a question"
+    if _NEG_CUE.search(sent) and not _NEG_CUE.search(claim):
+        return "partial", "the matching source sentence is negated"
+    if _HEDGE_CUE.search(sent) and not _HEDGE_CUE.search(claim):
+        return "partial", "the matching source sentence is hedged"
+    nums = {t for t in _tokens(claim) if re.fullmatch(r"\d+(?:[.,:]\d+)*%?", t)}
+    if nums - set(_tokens(passage)):
+        return "partial", "numbers or dates in the claim do not appear in the source"
+    return label, ""
 
 
 # ---------------------------------------------------------------------------- claims
@@ -169,7 +220,7 @@ def _idf(df: int, n: int) -> float:
 
 
 def _rank_passages(claim: str, psgs: list[str]) -> list[tuple[float, int]]:
-    ctoks = list(dict.fromkeys(_tokens(claim)))
+    ctoks = list(dict.fromkeys(_tokens(_scoring_text(claim))))
     if not ctoks or not psgs:
         return []
     sets = [set(_tokens(p)) for p in psgs]
@@ -303,10 +354,10 @@ def verify_pair(claim: str, doc: Document, *, router: Any = None, role: str = "v
     ranked = _rank_passages(claim, psgs)
     score = round(ranked[0][0], 4) if ranked else 0.0
     best = psgs[ranked[0][1]] if ranked else ""
-    lex = _lexical_label(score, lexical_threshold, partial_threshold)
+    lex, why = _lexical_guard(claim, best, _lexical_label(score, lexical_threshold, partial_threshold))
     out = {"ref": doc_ref(doc), "claim": claim, "label": lex,
            "quote": _best_sentence(best, claim) if lex != "unsupported" and best else "",
-           "score": score, "method": "lexical", "rationale": ""}
+           "score": score, "method": "lexical", "rationale": why}
     if router is None:
         return out
     out["method"] = "llm-unavailable"
@@ -372,6 +423,53 @@ def verify_finding(finding: Finding, docs_by_ref: dict[str, Document], *, max_pa
     return [p for p in out if p is not None]
 
 
+def claim_coverage(finding: Finding, pairs: list[dict], docs_by_ref: dict[str, Document], *,
+                   max_checks: int = 6, executor: Executor | None = None, **kw: Any) -> list[dict]:
+    """Check that every claim of ``finding`` (each summary sentence and the headline title) is
+    supported by at least one cited document, not only the claim each ref happened to pair with.
+
+    A ref is paired with its best-matching claim, so a background sentence can earn "supported"
+    while the headline judgment (attribution, targeting) is never checked. Each claim not already
+    supported or partially supported by a pair is checked against the cited document that matches
+    it best. Returns ``[{"claim", "ref", "label", "method", "headline"}]`` for those checks.
+    """
+    claims = [c for c, _ in _finding_claims(finding)]
+    title = _strip_refs(finding.title or "").strip(" .")
+    if title and len(_tokens(_scoring_text(title))) >= 3 and title not in claims:
+        claims.append(title)
+    covered = {p.get("claim") for p in pairs if p.get("label") in ("supported", "partial")}
+    docs = [docs_by_ref[r] for r in dict.fromkeys(finding.evidence) if r in docs_by_ref]
+    if not docs:
+        return []
+    jobs: list[tuple[str, Document]] = []
+    for c in claims:
+        if c in covered or len(jobs) >= max(0, int(max_checks)):
+            continue
+        best = max(docs, key=lambda d: (_rank_passages(c, passages(_source_text(d))) or [(0.0, 0)])[0][0])
+        jobs.append((c, best))
+    run = (lambda j: verify_pair(j[0], j[1], **kw))
+    results = list(executor.map(run, jobs)) if executor is not None and len(jobs) > 1 else [run(j) for j in jobs]
+    return [{"claim": c, "ref": r["ref"], "label": r["label"], "method": r["method"], "headline": c == title}
+            for (c, _), r in zip(jobs, results, strict=True)]
+
+
+def _drop_inline(text: str, refs: set[str]) -> str:
+    """Remove ``refs`` from inline ``[a:b; c:d]`` citation groups (empty groups disappear)."""
+    if not refs or not text:
+        return text
+
+    def repl(m: re.Match) -> str:
+        keep = [r.strip() for r in re.split(r"[,;]", m.group(1)) if r.strip() and r.strip() not in refs]
+        return f"[{'; '.join(keep)}]" if keep else ""
+
+    out = _REF_GROUP.sub(repl, text)
+    out = re.sub(r"\s+([.,;:!?)])", r"\1", out)
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
+
+
+_EXTREME_LIKELIHOOD = frozenset({"almost certain", "very likely", "very unlikely", "almost no chance"})
+
+
 # ---------------------------------------------------------------------------- report
 def _cell(v: Any) -> str:
     return str(v if v is not None else "").replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
@@ -423,6 +521,8 @@ def verify_report(report: Report, docs: Iterable[Document], *, router: Any = Non
     meta = report.meta if isinstance(report.meta, dict) else {}
     report.meta = meta
     removed_all: dict[str, list[str]] = dict(meta.get("citation_removed") or {})
+    contrary_all: dict[str, list[str]] = dict(meta.get("citation_contrary") or {})
+    coverage_all: dict[str, list[dict]] = {}
     support: dict[str, list[dict]] = {}
     labels: Counter = Counter()
     methods: Counter = Counter()
@@ -450,14 +550,27 @@ def verify_report(report: Report, docs: Iterable[Document], *, router: Any = Non
             if not downgrade:
                 continue
             bad = [p["ref"] for p in judged if p["label"] in ("unsupported", "contradicted")]
-            for p in judged:
-                if p["label"] == "contradicted":
-                    new_gaps.append(f"{kid} cites [{p['ref']}], which contradicts it.")
+            contrary = list(dict.fromkeys(p["ref"] for p in judged if p["label"] == "contradicted"))
+            for ref in contrary:
+                new_gaps.append(f"{kid} cites [{ref}], which contradicts it.")
             if bad:
+                # Refs that do not support the judgment leave its evidence (they must not count as
+                # corroboration) and its inline citations; contradicting ones stay visible as contrary
+                # evidence in the judgment text and in meta['citation_contrary'].
                 kj.evidence = [r for r in kj.evidence if r not in bad]
                 removed_all[kid] = list(dict.fromkeys([*removed_all.get(kid, []), *bad]))
                 n_removed += len(bad)
+                kj.summary = _drop_inline(kj.summary, set(bad))
+                kj.title = _drop_inline(kj.title, set(bad))
+            if contrary:
+                contrary_all[kid] = list(dict.fromkeys([*contrary_all.get(kid, []), *contrary]))
+                note = "Contrary evidence: " + " ".join(f"[{r}]" for r in contrary_all[kid]) + "."
+                kj.summary = re.sub(r"\s*Contrary evidence: (?:\[[^\]]+\]\s*)+\.", "", kj.summary or "").strip()
+                kj.summary = f"{kj.summary} {note}".strip()
             kinds = {p["label"] for p in pairs}
+            doc_support = kinds & {"supported", "partial"}
+            sig_only = (not doc_support and any(p["ref"].startswith("sig:") for p in pairs if p["label"] == "computed")
+                        and not any(p["ref"].startswith("ref:") for p in pairs))
             if not kinds & {"supported", "partial", "computed"} and not n_unchecked:
                 if kj.confidence != "low":
                     downgraded += 1
@@ -465,10 +578,40 @@ def verify_report(report: Report, docs: Iterable[Document], *, router: Any = Non
                 title = " ".join(kj.title.split())[:80]
                 new_gaps.append(f"{kid} ({title}) has no citation that supports it after citation verification; "
                                 "confidence set to low.")
+                if kj.likelihood:
+                    new_gaps.append(f"{kid}: its likelihood estimate ({kj.likelihood}) was withdrawn because no "
+                                    "cited source supports the judgment.")
+                    kj.likelihood = None
+                continue
+            if sig_only and not n_unchecked and kj.confidence == "high":
+                # A computed signal measures a property of the corpus (volume, duplication, co-sharing);
+                # it does not by itself support who is behind it or why.
+                kj.confidence = "moderate"
+                capped += 1
+                new_gaps.append(f"{kid} rests only on computed signals, which measure the collected material but do "
+                                "not establish the claim's content; confidence capped at moderate.")
             elif ("partial" in kinds and not kinds & {"supported", "computed"} and not n_unchecked
                   and kj.confidence == "high"):
                 kj.confidence = "moderate"
                 capped += 1
+            elif contrary and kj.confidence == "high":
+                kj.confidence = "moderate"
+                capped += 1
+            if doc_support and not n_unchecked and budget > 0:
+                cov = claim_coverage(kj, pairs, docs_by_ref, max_checks=min(6, budget), executor=pool, **kw)
+                budget -= len(cov)
+                coverage_all[kid] = cov
+                missing = [c for c in cov if c["label"] not in ("supported", "partial")]
+                if missing:
+                    head = next((c for c in missing if c["headline"]), missing[0])
+                    if kj.confidence == "high":
+                        kj.confidence = "moderate"
+                        capped += 1
+                    new_gaps.append(f"{kid}: no cited source supports "
+                                    + ("its headline judgment" if head["headline"] else "the claim")
+                                    + f" \"{' '.join(head['claim'].split())[:120]}\""
+                                    + (f" (and {len(missing) - 1} more claim(s))" if len(missing) > 1 else "")
+                                    + "; confidence held at moderate or below.")
     finally:
         if pool is not None:
             pool.shutdown(wait=True)
@@ -498,6 +641,10 @@ def verify_report(report: Report, docs: Iterable[Document], *, router: Any = Non
     meta["citation_support"] = support
     if removed_all:
         meta["citation_removed"] = removed_all
+    if contrary_all:
+        meta["citation_contrary"] = contrary_all
+    if coverage_all:
+        meta["claim_coverage"] = coverage_all
     if not isinstance(report.stats, dict):
         report.stats = {}
     report.stats["citation_verification"] = stats
@@ -514,5 +661,5 @@ def verify_report(report: Report, docs: Iterable[Document], *, router: Any = Non
 
 __all__ = [
     "VERIFY_VERSION", "LABELS", "VERIFIER_PROMPT", "split_claims", "passages", "lexical_support",
-    "quote_in_source", "verify_pair", "verify_finding", "verify_report",
+    "quote_in_source", "verify_pair", "verify_finding", "claim_coverage", "verify_report",
 ]

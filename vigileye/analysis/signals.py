@@ -489,6 +489,19 @@ def _run_detector(name: str, module: str, func: str, call, errors: list[str], sk
     return good
 
 
+def detector_options(value: Any) -> dict:
+    """A detector setting (``analysis.bursts`` / ``analysis.coordination``) as kwargs.
+
+    ``None`` and ``True`` mean "on, with defaults"; a mapping is passed through; anything else
+    raises :class:`ValueError` (``False`` is handled by callers: it disables the detector).
+    """
+    if value is None or value is True:
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    raise ValueError(f"expected true/false or a mapping of options, got {type(value).__name__} {value!r}")
+
+
 def compute_signals(docs: list[Document], *, settings: dict | None = None, case: str = "default") -> dict:
     """Run every available deterministic detector over ``docs`` (no LLM).
 
@@ -528,7 +541,12 @@ def compute_signals(docs: list[Document], *, settings: dict | None = None, case:
         if opts is False:
             skipped.append(name)
             continue
-        kwargs = {**extra, **dict(opts or {})}
+        try:
+            kwargs = {**extra, **detector_options(opts)}
+        except ValueError as e:
+            errors.append(f"signals: {name} detector not run: {e}")
+            skipped.append(name)
+            continue
         found = _run_detector(name, module, func, lambda fn, kw=kwargs: fn(docs, clusters=clusters, **kw),
                               errors, skipped)
         seen = {x["id"] for x in signals}

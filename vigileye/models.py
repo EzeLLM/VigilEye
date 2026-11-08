@@ -17,7 +17,7 @@ def _parse_dt(value: Any) -> datetime | None:
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if isinstance(value, (int, float)):
         ts = float(value)
         if ts > 1e12:  # milliseconds
@@ -35,7 +35,7 @@ def _parse_dt(value: Any) -> datetime | None:
             dt = datetime.fromisoformat(s)
         except ValueError:
             return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     return None
 
 
@@ -105,10 +105,13 @@ class Document:
                 total += float(v)
         return total
 
-    def render(self, max_chars: int | None = None) -> str:
+    def render(self, max_chars: int | None = None, *, author_label: str | None = None) -> str:
+        """Plain-text rendering. ``author_label`` replaces the author handle (prompts pass a keyed
+        pseudonym, see :func:`vigileye.analysis.chunking.render_doc`; ``""`` omits it)."""
         head = [f"[{self.ref}]", f"{self.platform}/{self.source}"]
-        if self.author:
-            head.append(f"by {self.author}")
+        who = self.author if author_label is None else author_label
+        if who:
+            head.append(f"by {who}")
         if self.created_at:
             head.append(self.created_at.strftime("%Y-%m-%d %H:%MZ"))
         if self.metrics:

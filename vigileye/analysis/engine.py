@@ -26,7 +26,7 @@ from .. import __version__
 from ..models import Document, Entity, Finding, Report
 from ..tokens import count_tokens
 from . import tradecraft as tc
-from .chunking import chunk_documents, chunk_tokens, doc_ref, render_chunk
+from .chunking import chunk_documents, chunk_tokens, doc_ref, fence_untrusted, render_chunk
 from .enrich import (
     coerce_entities,
     describe_media,
@@ -89,6 +89,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # authoritative vulnerability grounding (intel/): CISA KEV + FIRST EPSS; network unless intel.offline
     "ground_cves": False,
     "warninglists_dir": None,      # optional MISP misp-warninglists clone
+    # when max_chunks forces a cut and a query is set, rank documents by relevance to it (retrieval.py:
+    # BM25/FTS5 + the optional embedder role, fused 0.6) before engagement/recency (0.4)
+    "relevance_selection": True,
 }
 
 _REF_IN_TEXT = re.compile(r"\[([a-z0-9_.-]+:[^\]\s|,]+)\]", re.I)
@@ -153,7 +156,7 @@ class AnalysisEngine:
             score[i] += 0.4 * rank / n
         return [docs[i] for i in sorted(range(len(docs)), key=lambda i: -score[i])]
 
-    def _select_and_chunk(self, docs: list[Document], budget: int, max_chunks: int | None):
+    def _select_and_chunk(self, docs: list[Document], budget: int, max_chunks: int | None, query: str = ""):
         def chrono(ds: Iterable[Document]) -> list[Document]:
             epoch = datetime.min.replace(tzinfo=timezone.utc)
             return sorted(ds, key=lambda d: d.created_at or epoch)
@@ -162,11 +165,22 @@ class AnalysisEngine:
         if not max_chunks or max_chunks <= 0 or len(chunks) <= max_chunks:
             return chunks, []
         ranked = self._priority(docs)
+        if query and query.strip() and self.settings.get("relevance_selection", True):
+            try:
+                from ..retrieval import rank_for_query
+
+                ranked = rank_for_query(docs, query, self.router)  # 0.6 relevance (RRF) + 0.4 engagement/recency
+            except Exception as e:  # noqa: BLE001 - selection must never fail a run
+                log.warning("relevance-aware selection failed, using engagement/recency: %s", e)
         kept_ids = {d.fingerprint() for chunk in chunk_documents(ranked, budget)[:max_chunks] for d in chunk}
-        kept = [d for d in docs if d.fingerprint() in kept_ids]
+        kept = [d for d in ranked if d.fingerprint() in kept_ids]  # in priority order
         chunks = chunk_documents(chrono(kept), budget)
-        if len(chunks) > max_chunks:  # repacking in time order can spill over by one
-            chunks = chunks[:max_chunks]
+        # Repacking in time order can need more chunks than the ranked packing (long documents
+        # scattered in time each close a partly filled chunk). Drop the lowest-priority documents
+        # until it fits, never the chronological tail (that would silently lose the newest).
+        while len(chunks) > max_chunks and len(kept) > 1:
+            kept.pop()
+            chunks = chunk_documents(chrono(kept), budget)
         final_ids = {d.fingerprint() for c in chunks for d in c}
         dropped = [d for d in docs if d.fingerprint() not in final_ids]
         return chunks, dropped
@@ -219,7 +233,7 @@ class AnalysisEngine:
         return Finding(
             title=title,
             summary=summary or title,
-            confidence=tc.normalize_confidence(d.get("confidence")),
+            confidence=tc.normalize_confidence(d.get("confidence") or "low"),  # unstated is not "moderate"
             likelihood=likelihood,
             evidence=evidence[:15],
             tags=[str(t) for t in tags][:8],
@@ -244,7 +258,7 @@ class AnalysisEngine:
     def _map_chunk(self, idx: int, total: int, chunk: list[Document], lens: Lens, query: str, budget: int,
                    indicators: list[dict], want_entities: bool, known: set[str], by_id: dict[str, str],
                    computed_signals: list[dict] | None = None, reference_facts: str = "",
-                   citation_check: bool = False) -> dict:
+                   citation_check: bool = False, author_key: bytes | None = None) -> dict:
         refs = {doc_ref(d) for d in chunk}
         times = [d.created_at for d in chunk if d.created_at]
         time_range = f"{min(times):%Y-%m-%d} to {max(times):%Y-%m-%d}" if times else ""
@@ -254,11 +268,12 @@ class AnalysisEngine:
                                   "tokens": chunk_tokens(chunk)}
         local_stats: Counter = Counter()
         try:
+            documents, nonce = fence_untrusted(render_chunk(chunk, budget, key=author_key))
             messages = self._messages(
                 lens, query, f"chunk analysis {idx}/{total}", "map.j2",
                 chunk_index=idx, chunk_count=total, doc_count=len(chunk), time_range=time_range,
                 indicators=chunk_iocs if chunk_iocs.get("counts") else None,
-                documents=render_chunk(chunk, budget),
+                documents=documents, nonce=nonce,
                 entity_types=lens.entity_types,
                 max_findings=self.settings["max_findings_per_chunk"],
                 computed_signals=render_signals_block(signals_for_refs(computed_signals or [], refs)),
@@ -287,7 +302,8 @@ class AnalysisEngine:
         if want_entities and (self.settings.get("entity_pass") or (not result["entities"] and result["error"] is None)):
             try:
                 result["entities"] = merge_entities(
-                    result["entities"] + _extract_entities(chunk, self.router, lens=lens, env=self.env, max_tokens=budget)
+                    result["entities"] + _extract_entities(chunk, self.router, lens=lens, env=self.env, max_tokens=budget,
+                                                           author_key=author_key)
                 )
             except Exception as e:  # noqa: BLE001
                 log.warning("entity extraction chunk %d failed: %s", idx, e)
@@ -337,12 +353,17 @@ class AnalysisEngine:
     def _ach(self, lens: Lens, query: str, judgments: list[Finding], chunk_results: list[dict],
              known: set[str], by_id: dict[str, str],
              computed_signals: list[dict] | None = None) -> tuple[list[dict], dict]:
-        # computed signals go first so the 40-item cap can never drop them
+        # computed signals go first so the 40-item cap can never drop them; chunk items are then taken
+        # round-robin across chunks (chunks are in time order: a sequential fill would keep only the
+        # oldest material)
         evidence: list[str] = [f"{x['id']}: {x['summary']}" for x in (computed_signals or [])[:10]]
+        per_chunk: list[list[str]] = []
         for c in chunk_results:
-            for f in c["findings"]:
-                evidence.append(f"{f.title}: {f.summary[:300]} ({', '.join(f.evidence[:4])})")
-            evidence += [f"signal: {s}" for s in c["signals"][:3]]
+            items = [f"{f.title}: {f.summary[:300]} ({', '.join(f.evidence[:4])})" for f in c["findings"]]
+            items += [f"signal: {s}" for s in c["signals"][:3]]
+            per_chunk.append(items)
+        for k in range(max((len(x) for x in per_chunk), default=0)):
+            evidence += [items[k] for items in per_chunk if k < len(items)]
         evidence = list(dict.fromkeys(evidence))[:40]
         messages = self._messages(lens, query, "analysis of competing hypotheses", "ach.j2",
                                   key_judgments=judgments, evidence=evidence,
@@ -351,6 +372,7 @@ class AnalysisEngine:
         if isinstance(payload, list):
             payload = {"hypotheses": payload}
         hyps: list[dict] = []
+        matrix = payload.get("matrix") if isinstance(payload.get("matrix"), dict) else {}
         for i, h in enumerate(payload.get("hypotheses") or [], 1):
             if isinstance(h, str):
                 h = {"hypothesis": h}
@@ -367,27 +389,39 @@ class AnalysisEngine:
                 return out
 
             consistent, inconsistent = refs(h.get("consistent")), refs(h.get("inconsistent"))
+            hid = str(h.get("id") or f"H{i}")
+            # Heuer: rank by the evidence the model itself marked inconsistent (matrix "I" cells, else
+            # its inconsistent list), never by a free-floating number it may have copied from the example.
+            cells = [str(row.get(hid) or "").strip().upper()[:1] for row in matrix.values() if isinstance(row, dict)]
+            own = float(sum(c == "I" for c in cells)) if any(cells) else float(len(inconsistent))
             try:
-                score = float(h.get("inconsistency_score")) if h.get("inconsistency_score") is not None else float(len(inconsistent))
+                stated = float(h["inconsistency_score"]) if h.get("inconsistency_score") is not None else None
             except (TypeError, ValueError):
-                score = float(len(inconsistent))
+                stated = None
             hyps.append({
-                "id": str(h.get("id") or f"H{i}"),
+                "id": hid,
                 "hypothesis": text,
-                "likelihood": tc.normalize_wep(h.get("likelihood")) or "roughly even chance",
-                "confidence": tc.normalize_confidence(h.get("confidence")),
+                "likelihood": tc.normalize_wep(h.get("likelihood")),  # None when the model gave none
+                "confidence": tc.normalize_confidence(h.get("confidence") or "low"),
                 "consistent": consistent,
                 "inconsistent": inconsistent,
-                "inconsistency_score": score,
+                "inconsistency_score": own,
+                **({"model_inconsistency_score": stated} if stated is not None and stated != own else {}),
                 "notes": str(h.get("notes") or h.get("rationale") or "").strip(),
             })
         hyps.sort(key=lambda h: h["inconsistency_score"])
         extra = {
-            "matrix": payload.get("matrix") if isinstance(payload.get("matrix"), dict) else {},
+            "matrix": matrix,
             "most_diagnostic_evidence": self._str_list(payload.get("most_diagnostic_evidence")),
             "conclusion": str(payload.get("conclusion") or "").strip(),
             "evidence_items": {f"E{i}": e for i, e in enumerate(evidence, 1)},
         }
+        bands = [tc.wep_range(h["likelihood"]) for h in hyps if h["likelihood"]]
+        if len(bands) >= 2 and sum(lo for lo, _ in bands) > 1.0:
+            extra["likelihood_warning"] = (
+                "ACH: the likelihoods given to mutually exclusive hypotheses ("
+                + ", ".join(f"{h['id']} {h['likelihood']}" for h in hyps if h["likelihood"])
+                + ") cannot all hold (their lower bounds sum above 100%); treat them as a ranking, not probabilities.")
         return hyps, extra
 
     # --------------------------------------------------------------------- RUN
@@ -502,11 +536,13 @@ class AnalysisEngine:
                 to_chunk, n_collapsed = unique, 0
         if n_collapsed:
             self._emit(progress, f"collapsed {n_collapsed} near-duplicate copies into their cluster representatives")
-        chunks, dropped = self._select_and_chunk(to_chunk, budget, max_chunks)
+        chunks, dropped = self._select_and_chunk(to_chunk, budget, max_chunks, query=query)
         analysed = [d for c in chunks for d in c]
         if dropped:
+            relevance = bool(query and query.strip() and s.get("relevance_selection", True))
             msg = (f"{len(dropped)} lower-priority documents were not analysed (max_chunks={max_chunks}); "
-                   "selection favoured the most engaged and most recent content.")
+                   + ("selection favoured content relevant to the query, then the most engaged and most recent."
+                      if relevance else "selection favoured the most engaged and most recent content."))
             log.warning(msg)
             gaps.append(msg)
             self._emit(progress, msg)
@@ -524,11 +560,15 @@ class AnalysisEngine:
         self._emit(progress, f"map: {total} chunk(s), budget {budget} tokens each")
         done = 0
 
+        from .coordination import case_key, pseudonymize
+
+        author_key = case_key(case)
+
         def job(i_chunk: tuple[int, list[Document]]) -> dict:
             i, chunk = i_chunk
             return self._map_chunk(i, total, chunk, lens_obj, query, budget, indicators, want_entities, known, by_id,
                                    computed_signals=run_signals, reference_facts=reference_facts,
-                                   citation_check=want_verify)
+                                   citation_check=want_verify, author_key=author_key)
 
         chunk_results: list[dict] = []
         with ThreadPoolExecutor(max_workers=max(1, min(int(s["max_concurrency"]), total))) as pool:
@@ -559,7 +599,7 @@ class AnalysisEngine:
             cited.update(c["notable_sources"])
         grades_by_ref: dict[str, str] = {}
         for d in analysed:
-            g = d.meta.get("grade") or d.meta.get("admiralty") or tc.default_source_grade(d.platform, d.source)
+            g = d.meta.get("grade") or d.meta.get("admiralty") or tc.default_source_grade(d.platform, d.source, d.url)
             rel, cred = tc.parse_grade(g)
             grades_by_ref[doc_ref(d)] = f"{rel}{cred}"
         grade_counts = tc.grade_summary(grades_by_ref.values())
@@ -652,6 +692,8 @@ class AnalysisEngine:
             try:
                 hypotheses, ach_meta = self._ach(lens_obj, query, key_judgments, chunk_results, known, by_id,
                                                  computed_signals=run_signals)
+                if ach_meta.get("likelihood_warning"):
+                    gaps.append(ach_meta["likelihood_warning"])
             except Exception as e:  # noqa: BLE001
                 log.warning("ACH failed: %s", e)
                 errors.append(f"ach: {type(e).__name__}: {e}")
@@ -668,7 +710,9 @@ class AnalysisEngine:
                 "platform": d.platform,
                 "source": d.source,
                 "url": d.url,
-                "author": d.author,
+                # keyed pseudonym, never the handle: sources[] would otherwise map every
+                # pseudonymised coordination network (sig: doc_refs) back to account names
+                "author": pseudonymize(d.platform, d.author, author_key) if d.author else None,
                 "created_at": _utc_iso(d.created_at),
                 "title": (d.title or d.text or "")[:140],
                 "grade": grades_by_ref.get(ref, "F6"),
@@ -714,9 +758,10 @@ class AnalysisEngine:
         if lens_obj.name in ("influence", "narrative", "community") and s.get("coordination") is not False:
             try:
                 from .coordination import coordination_graph
+                from .signals import detector_options
 
                 meta["coordination_graph"] = coordination_graph(
-                    unique, clusters=sig["clusters"], case=case, **dict(s.get("coordination") or {}))
+                    unique, clusters=sig["clusters"], case=case, **detector_options(s.get("coordination")))
             except Exception as e:  # noqa: BLE001
                 errors.append(f"coordination_graph: {type(e).__name__}: {e}")
 

@@ -36,9 +36,9 @@ This survey leaves out features that target, identify, locate or profile private
 | Authoritative vulnerability grounding (KEV, EPSS) | P (modules) | Y (x_opencti_cisa_kev, epss) | - | P (passive analyzers) | - | - | - | - | - | - | - | - | - | P (NVD link only) | **Y** |
 | ATT&CK and DISARM vocabulary | Y (galaxies) | Y | P | - | - | - | - | - | - | - | - | - | - | P (regex T-IDs) | P (Navigator layer); validation N |
 | STIX 2.1 / TAXII 2.1 interop | Y (misp-stix) | Y (native) | P | P (push connectors) | - | - | - | - | - | - | - | - | - | - | **Y** (STIX export); TAXII N |
-| Evidence preservation, hashing, chain of custody | - | - | - | - | P (stored datasets) | - | - | Y (hash, RFC 3161, WACZ) | - | P (saved artifacts, K) | - | - | - | P (raw JSON kept, unhashed) | N |
-| Iterative deep-research loop | - | - | - | P (playbooks) | - | - | - | - | Y | Y | Y | Y | - | - (collect, then analyse) | N |
-| Hybrid retrieval over the case corpus | - | P (search) | - | - | P (search) | - | - | - | P (BM25 filter) | P (VectorRM) | - | Y | - | - (engagement plus recency) | N |
+| Evidence preservation, hashing, chain of custody | - | - | - | - | P (stored datasets) | - | - | Y (hash, RFC 3161, WACZ) | - | P (saved artifacts, K) | - | - | - | P (raw JSON kept, unhashed) | **Y** (SHA-256 stamps, hash-chained custody log, manifest) |
+| Iterative deep-research loop | - | - | - | P (playbooks) | - | - | - | - | Y | Y | Y | Y | - | - (collect, then analyse) | **Y** (`investigate`: policy-gated collect, analyse, plan) |
+| Hybrid retrieval over the case corpus | - | P (search) | - | - | P (search) | - | - | - | P (BM25 filter) | P (VectorRM) | - | Y | - | - (engagement plus recency) | **Y** (FTS5/BM25 plus embeddings, RRF; `ask`) |
 | Runs offline or on local models | Y (no LLM) | Y | Y | P | Y | Y | - (hosted) | Y | P | P (LiteLLM) | P | P | Y | **Y** (mock://, any /v1) | **Y** |
 | Lightweight deploy (one process plus SQLite) | - (PHP/MySQL) | - (ES, Redis, RabbitMQ, MinIO) | P (ArangoDB) | - (Django stack) | - (Docker, Postgres) | Y | - | P | Y | Y | P | P | Y | **Y** | **Y** |
 

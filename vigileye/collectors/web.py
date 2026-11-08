@@ -1,6 +1,8 @@
 """Generic public web page collector with optional same-domain crawl.
 
-Respects robots.txt by default (``ignore_robots=False``).
+Respects robots.txt by default (``ignore_robots=False``). Refuses non-public URLs (loopback,
+private, link-local, cloud-metadata and other internal hosts) on every fetch and every redirect
+hop, via :mod:`vigileye.policy`; ``collectors.web.allow_private: true`` turns that off for lab use.
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ from urllib.parse import urldefrag, urljoin, urlparse
 
 from ..models import Document, Media
 from .base import Collector, CollectorError, normalize_ws, register, to_utc
+
+MAX_REDIRECTS = 10
 
 _DROP = {"script", "style", "noscript", "template", "svg", "nav", "footer", "header", "aside", "form", "iframe", "button", "select"}
 _BLOCK = {"p", "div", "br", "li", "ul", "ol", "tr", "table", "section", "article", "main", "blockquote", "pre",
@@ -182,6 +186,16 @@ def page_to_document(html_text: str, url: str, depth: int = 0, max_images: int =
     )
 
 
+MAX_PAGE_BYTES = 10 << 20    # largest HTML/text page body buffered (collectors.web.max_page_bytes)
+MAX_ROBOTS_BYTES = 512 << 10  # robots.txt beyond 500 KiB is ignored by major crawlers too
+
+
+def _site(netloc: str) -> str:
+    """Host for same-site comparisons: lower-case, trailing dot and a leading ``www.`` dropped."""
+    host = (netloc or "").lower().rsplit("@", 1)[-1].rstrip(".")
+    return host[4:] if host.startswith("www.") else host
+
+
 @register
 class WebCollector(Collector):
     name = "web"
@@ -195,9 +209,41 @@ class WebCollector(Collector):
     def default_min_interval(self) -> float:
         return 1.0
 
+    #: ``resolver(host, port)`` for the SSRF checks (default :func:`socket.getaddrinfo`); tests inject one.
+    resolver = None
+
     def __init__(self, config: dict | None = None, http=None) -> None:
         super().__init__(config, http)
         self._robots: dict[str, robotparser.RobotFileParser | None] = {}
+
+    def refusal(self, url: str) -> str | None:
+        """Why ``url`` must not be fetched (not a public http(s) URL), or ``None``; always ``None`` with
+        ``allow_private``."""
+        if self.allow_private:
+            return None
+        from ..policy import check_url  # lazy: policy imports the collectors package
+
+        return check_url(url, resolver=self.resolver)
+
+    def fetch(self, url: str, *, retry: bool = True, max_bytes: int | None = None, **kwargs):
+        """GET ``url``, following redirects one hop at a time so each hop is checked with :meth:`refusal`
+        (this also covers an injected ``http`` client, which has no request hook). Raises
+        :class:`~vigileye.policy.PolicyError` for a refused hop. The body is capped at ``max_bytes``
+        (default ``max_page_bytes``, 10 MiB) and the collector's ``fetch_deadline``."""
+        from ..policy import PolicyError
+
+        kwargs["max_bytes"] = max_bytes or int(self.config.get("max_page_bytes", MAX_PAGE_BYTES))
+        send = self.request if retry else self.send_capped
+        for _ in range(MAX_REDIRECTS + 1):
+            reason = self.refusal(url)
+            if reason:
+                raise PolicyError(f"refusing to fetch {url}: {reason}")
+            resp = send("GET", url, follow_redirects=False, **kwargs)
+            location = resp.headers.get("location") if resp.is_redirect else None
+            if not location:
+                return resp
+            url = urljoin(str(resp.url), location.strip())
+        raise CollectorError(f"too many redirects (>{MAX_REDIRECTS}) ending at {url}")
 
     def allowed(self, url: str) -> bool:
         parsed = urlparse(url)
@@ -205,7 +251,7 @@ class WebCollector(Collector):
         if origin not in self._robots:
             rp = robotparser.RobotFileParser()
             try:
-                resp = self.http.get(origin + "/robots.txt", timeout=10)
+                resp = self.fetch(origin + "/robots.txt", retry=False, timeout=10, max_bytes=MAX_ROBOTS_BYTES)
                 if resp.status_code in (401, 403):
                     rp.disallow_all = True
                 elif resp.status_code >= 400:
@@ -227,7 +273,12 @@ class WebCollector(Collector):
         ignore_robots = bool(opts.get("ignore_robots", self.config.get("ignore_robots", False)))
         same_path = opts.get("path_prefix")
         max_chars = int(opts.get("max_chars", self.config.get("max_chars", 200_000)))
-        start_host = urlparse(start).netloc.lower()
+        start_hosts = {_site(urlparse(start).netloc)}
+        reason = self.refusal(start)
+        if reason:
+            from ..policy import PolicyError
+
+            raise PolicyError(f"refusing to fetch {start}: {reason}")
 
         queue: deque[tuple[str, int]] = deque([(urldefrag(start)[0], 0)])
         seen: set[str] = {urldefrag(start)[0]}
@@ -240,8 +291,12 @@ class WebCollector(Collector):
                     raise CollectorError(f"robots.txt disallows fetching {url}")
                 continue
             try:
-                resp = self.request("GET", url, headers={"Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"})
+                resp = self.fetch(url, headers={"Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"})
             except CollectorError as exc:
+                from ..policy import PolicyError
+
+                if depth == 0 and isinstance(exc, PolicyError):
+                    raise  # the start page itself redirected off the public internet
                 self.log.warning("fetch failed %s: %s", url, exc)
                 continue
             if resp.status_code >= 400:
@@ -251,6 +306,8 @@ class WebCollector(Collector):
                 continue
             ctype = resp.headers.get("content-type", "").lower()
             final_url = str(resp.url)
+            if depth == 0:  # "same domain" means the site the start page actually landed on
+                start_hosts.add(_site(urlparse(final_url).netloc))
             if "html" not in ctype and "xml" not in ctype and ctype:
                 if ctype.startswith("text/"):
                     text = resp.text[:max_chars]
@@ -276,7 +333,7 @@ class WebCollector(Collector):
                 for link in info_links:
                     link = urldefrag(link)[0]
                     pu = urlparse(link)
-                    if pu.scheme not in ("http", "https") or pu.netloc.lower() != start_host:
+                    if pu.scheme not in ("http", "https") or _site(pu.netloc) not in start_hosts:
                         continue
                     if pu.path.lower().endswith(_SKIP_EXT):
                         continue

@@ -42,6 +42,11 @@ def _hyp(h: Any) -> dict:
     return h if isinstance(h, dict) else {"hypothesis": _txt(h)}
 
 
+def _ach_meta(r: Report) -> dict:
+    ach = (r.meta or {}).get("ach") if isinstance(r.meta, dict) else None
+    return ach if isinstance(ach, dict) else {}
+
+
 def _top_entities(report: Report, n: int = 50):
     return sorted(report.entities, key=lambda e: -(e.mentions or 0))[:n]
 
@@ -54,6 +59,21 @@ def _usage_totals(stats: dict) -> dict:
             if isinstance(t, dict):
                 return t
     return {}
+
+
+def _custody_line(r: Report) -> str | None:
+    """One plain-text line for ``stats["custody"]`` (evidence.py): the custody chain head at analysis time."""
+    c = (r.stats or {}).get("custody")
+    if not isinstance(c, dict) or not c.get("chain_head"):
+        return None
+    parts = [f"chain head {c['chain_head']}", f"{c.get('chain_entries', '?')} custody entries",
+             "chain verified" if c.get("chain_ok") else "CHAIN BROKEN"]
+    if "documents" in c:
+        parts.append(f"{c.get('documents_stamped', 0)}/{c['documents']} analysed documents hash-stamped at collection")
+    return "; ".join(parts) + f" (check: `vigileye evidence verify --case {r.case} --anchor <chain head>`)"
+
+
+_STATS_HIDDEN = ("llm_usage", "usage", "custody")
 
 
 def _extra_sections(report: Report) -> list[dict]:
@@ -94,11 +114,19 @@ def render_markdown(report: Report) -> str:
         L += [r.body_markdown.strip(), ""]
     if r.hypotheses:
         L += ["## Analysis of Competing Hypotheses", ""]
-        L += _md_table(["#", "Hypothesis", "Likelihood", "Consistent", "Inconsistent", "Notes"],
-                       [[i, h.get("hypothesis", ""), h.get("likelihood", ""), h.get("consistent", ""),
-                         h.get("inconsistent", ""), h.get("notes", "")]
+        L += _md_table(["#", "Hypothesis", "Likelihood", "Confidence", "Inconsistent items", "Consistent", "Inconsistent",
+                        "Notes"],
+                       [[i, h.get("hypothesis", ""), h.get("likelihood") or "not estimated", h.get("confidence", ""),
+                         h.get("inconsistency_score", ""), h.get("consistent", ""), h.get("inconsistent", ""),
+                         h.get("notes", "")]
                         for i, h in enumerate(map(_hyp, r.hypotheses), 1)])
         L.append("")
+        ach = _ach_meta(r)
+        if ach.get("conclusion"):
+            L += [f"**Conclusion:** {_txt(ach['conclusion'])}", ""]
+        if ach.get("evidence_items"):
+            L += ["_Evidence items (ranked by least inconsistent evidence, after Heuer):_", ""]
+            L += [f"- **{k}**: {_txt(v)}" for k, v in ach["evidence_items"].items()] + [""]
     for title, items in (("Key Assumptions", r.assumptions), ("Intelligence Gaps", r.gaps)):
         L += [f"## {title}", ""] + ([f"- {_txt(x)}" for x in items] or ["_None identified._"]) + [""]
     if r.indicators:
@@ -121,7 +149,10 @@ def render_markdown(report: Report) -> str:
     for sec in _extra_sections(r):
         L += [f"## {sec.get('title') or sec.get('id')}", "", str(sec["markdown"]).strip(), ""]
     L += ["## Methodology", "", f"Lens `{r.lens}` applied to query: {r.query}", ""]
-    stats = {k: v for k, v in (r.stats or {}).items() if k not in ("llm_usage", "usage")}
+    custody = _custody_line(r)
+    if custody:
+        L.append(f"- **Chain of custody:** {custody}")
+    stats = {k: v for k, v in (r.stats or {}).items() if k not in _STATS_HIDDEN or (k == "custody" and not custody)}
     for k, v in stats.items():
         L.append(f"- **{k}:** {_txt(json.dumps(v, default=str) if isinstance(v, (dict, list)) else v)}")
     totals = _usage_totals(r.stats or {})
@@ -142,6 +173,7 @@ _E = html.escape
 
 def _inline(s: str) -> str:
     """Inline markdown on an ALREADY-ESCAPED string."""
+    s = s.replace("\x00", "\ufffd")  # NUL delimits code-span placeholders; collected text may carry \u0000
     codes: list[str] = []
 
     def stash(m):
@@ -190,7 +222,7 @@ def md_to_html(text: str) -> str:
                        + "</tbody></table></div>")
             table.clear()
 
-    for raw in (text or "").splitlines():
+    for raw in (text or "").replace("\x00", "\ufffd").splitlines():
         line = _E(raw.rstrip())
         stripped = line.strip()
         if not stripped:
@@ -273,9 +305,17 @@ def render_html(report: Report) -> str:
         P.append(f'<section class="body">{md_to_html(r.body_markdown)}</section>')
     if r.hypotheses:
         P += ["<h2>Analysis of Competing Hypotheses</h2>", _h_table(
-            ["#", "Hypothesis", "Likelihood", "Consistent", "Inconsistent", "Notes"],
-            [[i, h.get("hypothesis", ""), h.get("likelihood", ""), h.get("consistent", ""),
-              h.get("inconsistent", ""), h.get("notes", "")] for i, h in enumerate(map(_hyp, r.hypotheses), 1)])]
+            ["#", "Hypothesis", "Likelihood", "Confidence", "Inconsistent items", "Consistent", "Inconsistent", "Notes"],
+            [[i, h.get("hypothesis", ""), h.get("likelihood") or "not estimated", h.get("confidence", ""),
+              h.get("inconsistency_score", ""), h.get("consistent", ""), h.get("inconsistent", ""), h.get("notes", "")]
+             for i, h in enumerate(map(_hyp, r.hypotheses), 1)])]
+        ach = _ach_meta(r)
+        if ach.get("conclusion"):
+            P.append(f"<p><strong>Conclusion:</strong> {_E(_txt(ach['conclusion']))}</p>")
+        if ach.get("evidence_items"):
+            P.append("<p><em>Evidence items (ranked by least inconsistent evidence, after Heuer):</em></p><ul>"
+                     + "".join(f"<li><strong>{_E(_txt(k))}</strong>: {_E(_txt(v))}</li>"
+                               for k, v in ach["evidence_items"].items()) + "</ul>")
     for title, items in (("Key Assumptions", r.assumptions), ("Intelligence Gaps", r.gaps)):
         P.append(f"<h2>{title}</h2>")
         P.append("<ul>" + "".join(f"<li>{_E(_txt(x))}</li>" for x in items) + "</ul>" if items
@@ -305,7 +345,9 @@ def render_html(report: Report) -> str:
         P += [f"<h2>{_E(str(sec.get('title') or sec.get('id')))}</h2>",
               f'<section class="extra">{md_to_html(str(sec["markdown"]))}</section>']
     P += ["<h2>Methodology</h2>", f"<p>Lens <code>{_E(r.lens)}</code> applied to query: {_E(r.query)}</p>"]
-    stats = [(k, v) for k, v in (r.stats or {}).items() if k not in ("llm_usage", "usage")]
+    custody = _custody_line(r)
+    stats = ([("Chain of custody", custody)] if custody else []) + [
+        (k, v) for k, v in (r.stats or {}).items() if k not in _STATS_HIDDEN or (k == "custody" and not custody)]
     totals = _usage_totals(r.stats or {})
     if totals:
         stats.append(("LLM usage", ", ".join(f"{k}={v}" for k, v in totals.items())))

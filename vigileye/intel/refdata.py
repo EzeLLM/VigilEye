@@ -393,11 +393,29 @@ def reference_facts_block(grounding: dict, limit: int = 25) -> str:
 
 
 # --------------------------------------------------------------------------- report checks
+#: Negation or low likelihood AFTER the exploitation phrase, in the same clause ("Exploitation of
+#: CVE-X has not been confirmed", "... is unlikely", "... remains unconfirmed").
+_POST_NEG_RE = re.compile(
+    r"\b(?:has|have|had|is|are|was|were|been|be|being|do|does|did)\s+(?:\w+\s+)?(?:not|never)\b"
+    r"|\bnot\s+(?:been\s+|yet\s+)?(?:confirmed|observed|seen|detected|reported|verified|established|known|"
+    r"documented|substantiated|corroborated|proven)\b"
+    r"|\b(?:unlikely|improbable|doubtful|unconfirmed|unverified|unsubstantiated|unproven|uncorroborated)\b"
+    r"|\bno (?:evidence|indication|signs?|reports?)\b|n[\u2019']t\b", re.I)
+#: Hedged or low-likelihood framing anywhere before the phrase ("it is unlikely that CVE-X is exploited").
+_PRE_LOW_RE = re.compile(r"\b(?:unlikely|improbable|doubtful|no one has|nobody has)\b", re.I)
+
+
 def _negated(sentence: str) -> bool:
-    """Whether an exploitation phrase in ``sentence`` is negated within its own clause."""
+    """Whether an exploitation phrase in ``sentence`` is negated or called unlikely within its own
+    clause, before the phrase ("has not been exploited", "no evidence ... exploited") or after it
+    ("exploitation ... has not been confirmed", "exploitation ... is unlikely")."""
     for m in EXPLOIT_RE.finditer(sentence):
         start = max((c.end() for c in _CLAUSE_RE.finditer(sentence, 0, m.start())), default=0)
-        if _NEG_RE.search(sentence, start, m.start()):
+        nxt = _CLAUSE_RE.search(sentence, m.end())
+        end = nxt.start() if nxt else len(sentence)
+        if _NEG_RE.search(sentence, start, m.start()) or _PRE_LOW_RE.search(sentence, start, m.start()):
+            return True
+        if _POST_NEG_RE.search(sentence, m.end(), end):
             return True
     return False
 

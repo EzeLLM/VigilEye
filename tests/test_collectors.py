@@ -402,5 +402,6 @@ def test_web_collector_robots_and_crawl():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     col = get_collector("web", {"min_interval": 0}, http=client)
+    col.resolver = lambda host, port: ["93.184.216.34"]  # site.example "resolves" to a public address
     docs = list(col.collect("https://site.example/", limit=10, crawl_depth=1))
     assert [d.title for d in docs] == ["Home", "A"]
