@@ -1,0 +1,12 @@
+# Fully offline config: every role uses the deterministic mock provider.
+providers:
+  mock: {base_url: "mock://"}
+roles:
+  analyst: [{provider: mock, model: mock-analyst, context_window: 32000}]
+  extractor: [mock/mock-extractor]
+  vision: [mock/mock-vision]
+  synthesizer: [mock/mock-synthesizer]
+llm: {cache: false}
+analysis: {lens: general, chunk_tokens: 4000, max_chunks: 8}
+output: {dir: export, formats: [md, json, html]}
+store: {path: "${VIGILEYE_STORE:-.vigileye/offline.db}"}

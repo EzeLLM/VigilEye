@@ -1,0 +1,40 @@
+Conduct an Analysis of Competing Hypotheses (ACH) for the {{ lens.title }}.
+{% if query %}
+Tasking / question: {{ query }}
+{% endif %}
+
+CURRENT KEY JUDGMENTS:
+{% for f in key_judgments %}
+- {{ f.title }}: {{ f.summary }} (evidence: {% for e in f.evidence %}[{{ e }}]{% if not loop.last %} {% endif %}{% endfor %})
+{% endfor %}
+
+EVIDENCE ITEMS (chunk findings and signals with document ids):
+{% for item in evidence %}
+- E{{ loop.index }}: {{ item }}
+{% endfor %}
+
+Method (Heuer): 
+1. Generate {{ min_hypotheses }}-{{ max_hypotheses }} mutually exclusive, plausible hypotheses that explain the activity, always including a benign/organic explanation and a null hypothesis where relevant.
+2. For each evidence item, judge whether it is Consistent (C), Inconsistent (I), or Not applicable/Neutral (N) with each hypothesis. Focus on diagnostic evidence -- items that discriminate between hypotheses.
+3. Rank hypotheses by the LEAST inconsistent evidence (not by most consistent).
+4. Assign each hypothesis a likelihood using WEP ({{ wep_terms | join(", ") }}) and a confidence level.
+5. Identify the evidence that, if it changed, would most alter the ranking (linchpin evidence) and what collection would test each hypothesis.
+
+Return ONLY a JSON object:
+{
+  "hypotheses": [
+    {
+      "id": "H1",
+      "hypothesis": "...",
+      "likelihood": "WEP term",
+      "confidence": "low | moderate | high",
+      "consistent": ["E1", "<platform>:<id>"],
+      "inconsistent": ["E2"],
+      "inconsistency_score": 0,
+      "notes": "rationale and what would test it"
+    }
+  ],
+  "matrix": {"E1": {"H1": "C", "H2": "I"}},
+  "most_diagnostic_evidence": ["E1"],
+  "conclusion": "which hypothesis is favoured and why, with WEP"
+}

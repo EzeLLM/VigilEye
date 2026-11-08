@@ -71,7 +71,8 @@ def _ensure_loaded() -> None:
 def get_collector(name: str, config: dict | None = None, http: httpx.Client | None = None) -> "Collector":
     """Instantiate a registered collector by name (or alias)."""
     _ensure_loaded()
-    key = ALIASES.get(name.lower(), name.lower())
+    low = name.lower()
+    key = ALIASES.get(low) or _PREFIX_ALIASES.get(low) or low
     if key not in REGISTRY:
         raise CollectorError(f"Unknown collector '{name}'. Available: {', '.join(sorted(REGISTRY))}")
     return REGISTRY[key](config=config, http=http)

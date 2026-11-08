@@ -212,7 +212,15 @@ class RedditCollector(Collector):
             p.update({"limit": min(100, limit - fetched), "raw_json": 1})
             if after:
                 p["after"] = after
-            data = self.get_json(f"{BASE}{path}", params=p)
+            try:
+                data = self.get_json(f"{BASE}{path}", params=p)
+            except CollectorError as exc:
+                if "HTTP 403" in str(exc) or "HTTP 429" in str(exc):
+                    raise CollectorError(
+                        f"{exc} -- Reddit blocks many anonymous/datacenter clients; set REDDIT_CLIENT_ID and "
+                        "REDDIT_CLIENT_SECRET (and pip install praw) to use the authenticated API"
+                    ) from exc
+                raise
             listing = (data or {}).get("data") or {}
             children = listing.get("children") or []
             if not children:

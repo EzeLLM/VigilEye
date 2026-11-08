@@ -254,7 +254,7 @@ def get_lens(name_or_path: "str | Lens | None" = None) -> Lens:
 
 
 def list_lenses() -> list[Lens]:
-    return [ _BUILTIN[k] for k in _BUILTIN ]
+    return list(_BUILTIN.values())
 
 
 def load_lens(path: "str | Path") -> Lens:
@@ -291,4 +291,39 @@ def load_lens(path: "str | Path") -> Lens:
     return lens
 
 
-__all__ = ["Lens", "get_lens", "list_lenses", "load_lens", "register_lens"]
+# ---------------------------------------------------------------------------
+# Prompt templates
+# ---------------------------------------------------------------------------
+
+BUILTIN_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+
+
+def template_env(template_dir: "str | Path | None" = None):
+    """Jinja2 environment over the built-in prompt templates.
+
+    A user ``template_dir`` (config ``analysis.template_dir``) takes precedence,
+    so any built-in template can be overridden by dropping a same-named file there.
+    """
+    from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined  # noqa: F401
+
+    search: list[str] = []
+    if template_dir:
+        p = Path(template_dir).expanduser()
+        if p.is_dir():
+            search.append(str(p))
+    search.append(str(BUILTIN_TEMPLATE_DIR))
+    env = Environment(
+        loader=FileSystemLoader(search),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=False,
+    )
+    import json as _json
+
+    env.filters["tojson_compact"] = lambda v: _json.dumps(v, ensure_ascii=False, default=str)
+    env.filters["tojson_pretty"] = lambda v: _json.dumps(v, ensure_ascii=False, indent=1, default=str)
+    return env
+
+
+__all__ = ["Lens", "get_lens", "list_lenses", "load_lens", "register_lens", "template_env", "BUILTIN_TEMPLATE_DIR"]

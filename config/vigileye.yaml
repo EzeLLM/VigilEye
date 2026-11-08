@@ -1,33 +1,110 @@
+# VigilEye 2 configuration. ${VAR} and ${VAR:-default} are read from the environment / .env.
+#
+# PROVIDERS — every model is an OpenAI-compatible Chat Completions endpoint.
+# Point base_url at anything that speaks /v1/chat/completions: hosted APIs,
+# your own vLLM / SGLang / llama.cpp / TGI / LM Studio box, Ollama, a gateway,
+# or a private ("stealth") deployment behind custom auth headers.
+providers:
+  openai:
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    api_key: ${OPENAI_API_KEY}
+    pricing:                       # optional, USD per 1M tokens -> cost in reports
+      gpt-4o-mini: {input: 0.15, output: 0.60}
 
-llm: # used for report extraction
-  LLM_type: openai # Options: openai, gemini, ollama, vllm
-  LLM_model: gpt-4o-mini # Replace with your desired model name
+  local:                           # vLLM: `vllm serve Qwen/Qwen2.5-32B-Instruct` / llama.cpp `llama-server` / SGLang / LM Studio
+    base_url: ${LOCAL_LLM_URL:-http://localhost:8000/v1}
+    api_key: ${LOCAL_LLM_KEY:-none}
+    timeout: 300
 
-#⛔️ Caution: Local interpretation should only be used with multimodal models. Currently supporting OLLAMA. VLLM is so soon! ⛔️'
-image_interpreter:
-  ignore_img_not_found: False
-  image_formats:
-    - 'png' # png is default for reddit
-  image_field: 'url'
-  host: 'ollama'
-  model: 'llava'
+  ollama:                          # Ollama's OpenAI-compatible endpoint
+    base_url: ${OLLAMA_URL:-http://localhost:11434/v1}
+    api_key: ollama
 
-classifier:
-  history_path: templates/history.json
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    headers: {HTTP-Referer: "https://github.com/EzeLLM/VigilEye", X-Title: VigilEye}
 
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key: ${GROQ_API_KEY}
 
-all_eyes_on_reddit:
-  criteria: 'to be implemented later'
-  main_field: 'title'
-  other_fields:
-    - 'selftext'
-    - 'score'
-    - 'num_comments'
-  author_field: 'author'
-  template: templates/subreddit.j2
-  user_template: 'templates/security2.j2'
-  sub_template: 'templates/sub_per_user.j2'
-  reddit_: 'r/Turkey'
-  use_images: False
+  together:
+    base_url: https://api.together.xyz/v1
+    api_key: ${TOGETHER_API_KEY}
 
-  
+  deepseek:
+    base_url: https://api.deepseek.com/v1
+    api_key: ${DEEPSEEK_API_KEY}
+
+  mistral:
+    base_url: https://api.mistral.ai/v1
+    api_key: ${MISTRAL_API_KEY}
+
+  gemini:                          # Google's OpenAI-compatible surface
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key: ${GEMINI_API_KEY}
+
+  azure:                           # Azure OpenAI: deployment URL + api-key header + api-version query
+    base_url: ${AZURE_OPENAI_URL:-https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT}
+    headers: {api-key: "${AZURE_OPENAI_KEY}"}
+    query: {api-version: "2024-10-21"}
+
+  stealth:                         # private/self-hosted model behind a gateway
+    base_url: ${STEALTH_URL:-https://llm.internal.example/v1}
+    api_key: ${STEALTH_KEY:-none}
+    headers: {X-Gateway-Token: "${STEALTH_GATEWAY_TOKEN}"}
+    verify_tls: ${STEALTH_CA_BUNDLE:-true}   # true/false or path to a CA bundle
+    proxy: ${STEALTH_PROXY:-}                # e.g. socks5://127.0.0.1:9050 (needs httpx[socks])
+    supports_json_mode: false                # set if the server rejects response_format
+    inline_images: true                      # send images as base64 data URLs
+
+  mock:                            # offline deterministic provider (demos, CI)
+    base_url: "mock://"
+
+# ROLES — ordered fallback chains. If the first entry errors, the next is tried.
+# Entry form: {provider, model, context_window, temperature, max_tokens, json_mode, extra_body, ...any extra
+# OpenAI param such as top_p/seed/reasoning_effort}. Shorthand: "provider/model".
+roles:
+  analyst:                         # map step: reads document chunks
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+    # - {provider: local, model: Qwen/Qwen2.5-32B-Instruct, context_window: 32768}
+  extractor:                       # cheap structured extraction (entities)
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+  vision:                          # image description (must be multimodal)
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+    # - {provider: ollama, model: llava}
+  synthesizer:                     # final report; falls back to analyst if unset
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+
+llm:
+  temperature: 0.2
+  timeout: 120
+  max_retries: 3
+  cache: true                      # cache identical calls in the case store
+
+collectors:
+  http:
+    user_agent: "VigilEye/2.0 (+https://github.com/EzeLLM/VigilEye)"
+    timeout: 20
+  reddit:                          # praw is used when these are set, public JSON otherwise
+    client_id: ${REDDIT_CLIENT_ID}
+    client_secret: ${REDDIT_CLIENT_SECRET}
+    sort: hot
+
+analysis:
+  lens: general                    # general | threat | influence | narrative | cyber | market | crisis | community | path/to/lens.yaml
+  chunk_tokens: 12000
+  max_chunks: 24
+  extract_entities: true
+  use_vision: false
+  ach: false
+  max_concurrency: 4
+  # template_dir: my_templates     # override any prompt template
+
+output:
+  dir: export
+  formats: [md, json, html]
+
+store:
+  path: ${VIGILEYE_STORE:-.vigileye/cases.db}
