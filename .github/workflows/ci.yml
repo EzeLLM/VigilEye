@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      - name: offline end-to-end smoke test
+        run: |
+          printf '{"id":"1","platform":"file","source":"demo","text":"Demo post mentioning CVE-2024-3400 and hxxp://evil[.]example"}\n' > demo.jsonl
+          VIGILEYE_STORE=$RUNNER_TEMP/cases.db vigileye --config config/offline.yaml run file:demo.jsonl --case demo --out $RUNNER_TEMP/out

@@ -1,33 +1,173 @@
+# VigilEye 2 configuration. ${VAR} and ${VAR:-default} are read from the environment / .env.
+#
+# PROVIDERS — every model is an OpenAI-compatible Chat Completions endpoint.
+# Point base_url at anything that speaks /v1/chat/completions: hosted APIs,
+# your own vLLM / SGLang / llama.cpp / TGI / LM Studio box, Ollama, a gateway,
+# or a private ("stealth") deployment behind custom auth headers.
+providers:
+  openai:
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    api_key: ${OPENAI_API_KEY}
+    pricing:                       # optional, USD per 1M tokens -> cost in reports
+      gpt-4o-mini: {input: 0.15, output: 0.60}
 
-llm: # used for report extraction
-  LLM_type: openai # Options: openai, gemini, ollama, vllm
-  LLM_model: gpt-4o-mini # Replace with your desired model name
+  local:                           # vLLM: `vllm serve Qwen/Qwen2.5-32B-Instruct` / llama.cpp `llama-server` / SGLang / LM Studio
+    base_url: ${LOCAL_LLM_URL:-http://localhost:8000/v1}
+    api_key: ${LOCAL_LLM_KEY:-none}
+    timeout: 300
 
-#⛔️ Caution: Local interpretation should only be used with multimodal models. Currently supporting OLLAMA. VLLM is so soon! ⛔️'
-image_interpreter:
-  ignore_img_not_found: False
-  image_formats:
-    - 'png' # png is default for reddit
-  image_field: 'url'
-  host: 'ollama'
-  model: 'llava'
+  ollama:                          # Ollama's OpenAI-compatible endpoint
+    base_url: ${OLLAMA_URL:-http://localhost:11434/v1}
+    api_key: ollama
 
-classifier:
-  history_path: templates/history.json
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    headers: {HTTP-Referer: "https://github.com/EzeLLM/VigilEye", X-Title: VigilEye}
 
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key: ${GROQ_API_KEY}
 
-all_eyes_on_reddit:
-  criteria: 'to be implemented later'
-  main_field: 'title'
-  other_fields:
-    - 'selftext'
-    - 'score'
-    - 'num_comments'
-  author_field: 'author'
-  template: templates/subreddit.j2
-  user_template: 'templates/security2.j2'
-  sub_template: 'templates/sub_per_user.j2'
-  reddit_: 'r/Turkey'
-  use_images: False
+  together:
+    base_url: https://api.together.xyz/v1
+    api_key: ${TOGETHER_API_KEY}
 
-  
+  deepseek:
+    base_url: https://api.deepseek.com/v1
+    api_key: ${DEEPSEEK_API_KEY}
+
+  mistral:
+    base_url: https://api.mistral.ai/v1
+    api_key: ${MISTRAL_API_KEY}
+
+  gemini:                          # Google's OpenAI-compatible surface
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key: ${GEMINI_API_KEY}
+
+  azure:                           # Azure OpenAI: deployment URL + api-key header + api-version query
+    base_url: ${AZURE_OPENAI_URL:-https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT}
+    headers: {api-key: "${AZURE_OPENAI_KEY}"}
+    query: {api-version: "2024-10-21"}
+
+  stealth:                         # private/self-hosted model behind a gateway
+    base_url: ${STEALTH_URL:-https://llm.internal.example/v1}
+    api_key: ${STEALTH_KEY:-none}
+    headers: {X-Gateway-Token: "${STEALTH_GATEWAY_TOKEN}"}
+    verify_tls: ${STEALTH_CA_BUNDLE:-true}   # true/false or path to a CA bundle
+    proxy: ${STEALTH_PROXY:-}                # e.g. socks5://127.0.0.1:9050 (needs httpx[socks])
+    supports_json_mode: false                # set if the server rejects response_format
+    inline_images: true                      # send images as base64 data URLs
+
+  mock:                            # offline deterministic provider (demos, CI)
+    base_url: "mock://"
+
+# ROLES — ordered fallback chains. If the first entry errors, the next is tried.
+# Entry form: {provider, model, context_window, temperature, max_tokens, json_mode, extra_body, ...any extra
+# OpenAI param such as top_p/seed/reasoning_effort}. Shorthand: "provider/model".
+roles:
+  analyst:                         # map step: reads document chunks
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+    # - {provider: local, model: Qwen/Qwen2.5-32B-Instruct, context_window: 32768}
+  extractor:                       # cheap structured extraction (entities)
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+  vision:                          # image description (must be multimodal)
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+    # - {provider: ollama, model: llava}
+  synthesizer:                     # final report; falls back to analyst if unset
+    - {provider: openai, model: gpt-4o-mini, context_window: 128000}
+  # verifier:                      # optional citation grounding checker (falls back to extractor, then analyst)
+  #   - {provider: ollama, model: bespoke-minicheck, context_window: 32000}
+  # critic:                        # optional red-team reviewer for --critic; prefer a different model family
+  #   - {provider: local, model: Qwen/Qwen2.5-32B-Instruct, context_window: 32768}   # from the synthesizer
+  # planner:                       # `vigileye investigate` collection planner (falls back to analyst); its targets
+  #   - {provider: openai, model: gpt-4o-mini, context_window: 128000}   # always pass the auto-mode target policy
+  # embedder:                      # optional /v1/embeddings model: hybrid retrieval for `vigileye ask` and
+  #                                # relevance-aware selection; never falls back to chat roles; lexical-only if unset
+  #   - {provider: openai, model: text-embedding-3-small}      # optional: dimensions: 512
+  #   - {provider: local, model: BAAI/bge-m3}                   # vLLM `--task embed`, or llama.cpp `llama-server --embeddings`
+  #   - {provider: ollama, model: nomic-embed-text}             # Ollama /v1/embeddings
+
+llm:
+  temperature: 0.2
+  timeout: 120
+  max_retries: 3
+  cache: true                      # cache identical calls in the case store
+
+collectors:
+  http:
+    user_agent: "VigilEye/2.0 (+https://github.com/EzeLLM/VigilEye)"
+    timeout: 20
+    # allow_private: false         # true turns the SSRF guard off for EVERY collector (lab use only)
+  web:
+    allow_private: false           # SSRF guard: refuse loopback/private/link-local/metadata hosts on every fetch and
+                                   # redirect hop (web pages and vision image fetches). true = lab use only.
+                                   # The HTTP API's target policy stays strict either way.
+  reddit:                          # praw is used when these are set, public JSON otherwise
+    client_id: ${REDDIT_CLIENT_ID}
+    client_secret: ${REDDIT_CLIENT_SECRET}
+    sort: hot
+
+analysis:
+  lens: general                    # general | threat | influence | narrative | cyber | market | crisis | community | path/to/lens.yaml
+  chunk_tokens: 12000
+  max_chunks: 24
+  extract_entities: true
+  use_vision: false
+  ach: false
+  max_concurrency: 4
+  # template_dir: my_templates     # override any prompt template
+
+  # Computed evidence signals: deterministic measurements (no LLM) cited as [sig:...] ids.
+  signals: true                    # copypasta / near-duplicate clusters, bursts, coordination
+  collapse_near_dups: true         # the map step sees one representative per copypasta cluster
+  near_dup_threshold: 0.8          # MinHash/Jaccard similarity for near-duplicates
+  near_dup_min_size: 3             # smallest cluster reported as copypasta and collapsed
+  bursts:                          # temporal bursts: Kleinberg + robust rolling z-score (false disables)
+    z_threshold: 3.5
+    min_events: 5
+  coordination:                    # co-sharing networks tested against a permutation null (false disables)
+    window_s: 60                   # co-share window in seconds, or "auto" (CooRnet-style estimate)
+    min_weight: 2                  # distinct co-share occasions before an account pair counts as repeated
+    n_iter: 200                    # permutations; smallest p = 1/(n_iter+1)
+    public_accounts: []            # allowlisted public/media handles shown verbatim, e.g. ["bluesky:apnews.com"]
+    # null_model: block            # block (default: posts reassigned within platform x day) | object
+    # stratum_s: 86400             # time block of the block null model
+  # Accounts are HMAC-pseudonymised per case with $VIGILEYE_PSEUDONYM_KEY. Set it: the built-in default key is public.
+
+  # Claim-level citation verification (CLI: --verify / --no-verify).
+  verify: true                     # every key-judgment citation is checked against its source text
+  verify_llm: true                 # lexical pre-filter, then the verifier role with a verbatim-quote guard
+  verify_max_pairs: 60             # (judgment, source) pairs checked per report; the rest are kept unchecked
+
+  # Tradecraft critic (CLI: --critic adds the LLM red-team pass).
+  critique: true                   # rule-based lint: circular reporting, overreach, WEP/confidence, staleness
+  critic_llm: false                # LLM devil's advocacy / key-assumptions check (critic role)
+  stale_days: 30                   # evidence older than this many days is flagged as stale
+
+  # Authoritative vulnerability grounding (CLI: --ground-cves). Off by default: it downloads reference data.
+  ground_cves: false               # check CVEs against CISA KEV + FIRST EPSS (keyless; only CVE ids are sent)
+
+  # When max_chunks forces a cut and --query is set, keep the documents most relevant to the query
+  # (BM25/FTS5 + the optional embedder role, 0.6) before engagement/recency (0.4).
+  relevance_selection: true
+  # warninglists_dir: ~/src/misp-warninglists   # optional MISP warninglists clone (benign-infrastructure lists)
+
+intel:                             # reference data cache for analysis.ground_cves / `vigileye refdata`
+  cache_dir: ${VIGILEYE_REFDATA:-.vigileye/refdata}
+  ttl_hours: 24
+  offline: false                   # true: never download, use the cache only
+  epss: true
+
+output:
+  dir: export
+  formats: [md, json, html]        # also: stix (STIX 2.1 bundle), navigator (ATT&CK Navigator layer)
+  tlp: clear                       # TLP marking on STIX exports: clear | green | amber | red (CLI: --tlp)
+
+store:
+  path: ${VIGILEYE_STORE:-.vigileye/cases.db}   # `vigileye ask` keeps its search index next to it (cases.index.db)
+
+evidence:                          # chain of custody (`vigileye evidence verify|manifest|log`)
+  custody: true                    # hash-stamp every document at collection and log collect/analyze/export
+                                   # entries in an append-only, hash-chained table in the case store
+  actor: ${VIGILEYE_ACTOR:-vigileye}   # who handled the evidence, recorded in every custody entry
